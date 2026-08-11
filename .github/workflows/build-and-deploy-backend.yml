@@ -1,0 +1,90 @@
+name: to-avocado
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set short Git SHA
+        id: vars
+        run: echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/trip-pip-backend:${{ env.SHORT_SHA }}
+
+  deploy:
+    name: Deploy to Ubuntu Server
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set short Git SHA for deploy
+        id: vars
+        run: echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Create .env file for Docker
+        run: |
+          echo "TAG=${{ env.SHORT_SHA }}" > .env
+          echo "DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}" >> .env
+          
+          echo "SAURES_EMAIL=${{ secrets.SAURES_EMAIL }}" >> .env
+          echo "SAURES_PASSWORD=${{ secrets.SAURES_PASSWORD }}" >> .env
+          
+          echo "DB_URL=${{ secrets.DB_URL }}" >> .env
+          echo "DB_USER=${{ secrets.DB_USER }}" >> .env
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
+          
+          echo "ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}" >> .env
+
+      - name: copy files to host
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST_IP }}
+          username: ${{ secrets.DEPLOY_HOST_USERNAME }}
+          key: ${{ secrets.DEPLOY_HOST_KEY }}
+          source: ".env, docker-compose.yml"
+          target: ${{ secrets.DEPLOY_HOST_PROJECT_PATH }}
+
+      - name: docker pull && up
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.DEPLOY_HOST_IP }}
+          username: ${{ secrets.DEPLOY_HOST_USERNAME }}
+          key: ${{ secrets.DEPLOY_HOST_KEY }}
+          script: |
+            echo ${{ secrets.DOCKER_TOKEN }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+            cd ${{ secrets.DEPLOY_HOST_PROJECT_PATH }}
+            docker compose pull
+            docker compose up -d
