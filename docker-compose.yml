@@ -3,6 +3,7 @@ name: trip-pip-backend
 services:
   backend:
     image: ${DOCKER_USERNAME}/trip-pip-backend:${TAG}
+    container_name: trip-pip-backend
     restart: unless-stopped
     environment:
       HTTP_ADDR: ":8080"
