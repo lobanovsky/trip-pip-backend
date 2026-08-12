@@ -14,6 +14,8 @@ permissions:
 
 env:
   IMAGE_NAME: trip-pip-backend
+  # Порт на хосте: 8080 занят другим сервисом на боевом сервере.
+  HOST_PORT: "8077"
 
 jobs:
   test:
@@ -96,7 +98,7 @@ jobs:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           TAG: ${{ needs.publish.outputs.tag }}
         run: |
-          printf 'DOCKER_USERNAME=%s\nTAG=%s\n' "$DOCKER_USERNAME" "$TAG" > .env.deploy
+          printf 'DOCKER_USERNAME=%s\nTAG=%s\nHOST_PORT=%s\n' "$DOCKER_USERNAME" "$TAG" "$HOST_PORT" > .env.deploy
           cp docker-compose.yml docker-compose.yml.deploy
 
       - name: Copy deployment files
@@ -131,10 +133,11 @@ jobs:
 
             deployment_ok=false
             expected_commit="${{ github.sha }}"
+            base_url="http://127.0.0.1:${{ env.HOST_PORT }}"
             if docker compose pull backend && docker compose up -d backend; then
               attempt=1
               while [ "$attempt" -le 30 ]; do
-                if curl --fail --silent --show-error http://127.0.0.1:8080/api/v1/ping >/dev/null && curl --fail --silent --show-error http://127.0.0.1:8080/api/v1/version | grep -q "\"commit\":\"$expected_commit\""; then
+                if curl --fail --silent --show-error "$base_url/api/v1/ping" >/dev/null && curl --fail --silent --show-error "$base_url/api/v1/version" | grep -q "\"commit\":\"$expected_commit\""; then
                   deployment_ok=true
                   break
                 fi
@@ -150,7 +153,10 @@ jobs:
 
             echo "Deployment health check failed; restoring previous version"
             echo "Expected commit: $expected_commit"
-            echo "Reported version: $(curl --fail --silent http://127.0.0.1:8080/api/v1/version || echo unavailable)"
+            echo "Reported version: $(curl --fail --silent "$base_url/api/v1/version" || echo unavailable)"
+            echo "Container state:"
+            docker compose ps
+            docker compose logs --tail 20 backend || true
             if [ "$had_previous" = true ]; then
               mv .env.rollback .env
               mv docker-compose.yml.rollback docker-compose.yml

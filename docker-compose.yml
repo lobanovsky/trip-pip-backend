@@ -7,10 +7,13 @@ services:
     environment:
       HTTP_ADDR: ":8080"
     ports:
-      - "8077:8080"
+      - "${HOST_PORT:-8077}:8080"
     read_only: true
-    security_opt:
-      - no-new-privileges:true
+    # no-new-privileges намеренно не используется: на боевом Ubuntu-хосте
+    # (Docker 29.6.1, ядро 6.8.0-110) этот флаг ломает exec любого образа —
+    # даже `docker run --security-opt no-new-privileges:true alpine echo`
+    # падает с `operation not permitted`. Перед возвратом флага проверьте,
+    # что эта команда на сервере отрабатывает.
 
     networks:
       - trip-pip-network
