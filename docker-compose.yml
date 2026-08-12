@@ -1,0 +1,13 @@
+name: trip-pip-backend
+
+services:
+  backend:
+    image: ${DOCKER_USERNAME}/trip-pip-backend:${TAG}
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

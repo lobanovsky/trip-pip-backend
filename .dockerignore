@@ -1,0 +1,8 @@
+.git
+.github
+.idea
+private
+.env*
+README.md
+bin
+coverage.out

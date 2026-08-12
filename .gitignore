@@ -1,0 +1,8 @@
+.idea/
+private/
+.env
+.env.*
+!.env.example
+bin/
+coverage.out
+*.log
