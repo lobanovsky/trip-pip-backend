@@ -137,7 +137,7 @@ jobs:
             if docker compose pull backend && docker compose up -d backend; then
               attempt=1
               while [ "$attempt" -le 30 ]; do
-                if curl --fail --silent --show-error "$base_url/api/v1/ping" >/dev/null && curl --fail --silent --show-error "$base_url/api/v1/version" | grep -q "\"commit\":\"$expected_commit\""; then
+                if curl --fail --silent --show-error "$base_url/api/ping" >/dev/null && curl --fail --silent --show-error "$base_url/api/version" | grep -q "\"commit\":\"$expected_commit\""; then
                   deployment_ok=true
                   break
                 fi
@@ -153,7 +153,7 @@ jobs:
 
             echo "Deployment health check failed; restoring previous version"
             echo "Expected commit: $expected_commit"
-            echo "Reported version: $(curl --fail --silent "$base_url/api/v1/version" || echo unavailable)"
+            echo "Reported version: $(curl --fail --silent "$base_url/api/version" || echo unavailable)"
             echo "Container state:"
             docker compose ps
             docker compose logs --tail 20 backend || true

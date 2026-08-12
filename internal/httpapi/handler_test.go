@@ -20,7 +20,7 @@ func discardLogger() *slog.Logger {
 func TestPing(t *testing.T) {
 	t.Parallel()
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
@@ -48,7 +48,7 @@ func TestPing(t *testing.T) {
 func TestVersion(t *testing.T) {
 	t.Parallel()
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/version", nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
@@ -73,7 +73,7 @@ func TestVersion(t *testing.T) {
 func TestPingRejectsUnsupportedMethod(t *testing.T) {
 	t.Parallel()
 
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/ping", strings.NewReader("{}"))
+	request := httptest.NewRequest(http.MethodPost, "/api/ping", strings.NewReader("{}"))
 	response := httptest.NewRecorder()
 
 	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
@@ -86,7 +86,7 @@ func TestPingRejectsUnsupportedMethod(t *testing.T) {
 func TestUnknownRoute(t *testing.T) {
 	t.Parallel()
 
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/unknown", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)

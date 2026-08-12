@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	pingPath    = "/api/v1/ping"
-	versionPath = "/api/v1/version"
+	pingPath    = "/api/ping"
+	versionPath = "/api/version"
 )
 
 type pingResponse struct {

@@ -170,7 +170,7 @@ func TestLoggingLevelFollowsStatus(t *testing.T) {
 		status  int
 		wantLvl string
 	}{
-		{"unknown route", http.MethodGet, "/api/v1/nope", http.StatusNotFound, "WARN"},
+		{"unknown route", http.MethodGet, "/api/nope", http.StatusNotFound, "WARN"},
 		{"wrong method", http.MethodPost, pingPath, http.StatusMethodNotAllowed, "WARN"},
 	}
 
