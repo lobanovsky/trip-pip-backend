@@ -17,7 +17,7 @@ import (
 const defaultHTTPAddr = ":8080"
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()}))
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = defaultHTTPAddr
@@ -25,7 +25,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewHandler(buildinfo.Commit),
+		Handler:           httpapi.NewHandler(logger, buildinfo.Commit),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -61,4 +61,15 @@ func main() {
 	}
 
 	logger.Info("HTTP server stopped")
+}
+
+// logLevel reads LOG_LEVEL, falling back to info. Set it to debug to see
+// healthcheck probes, which are logged below info on purpose.
+func logLevel() slog.Level {
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(os.Getenv("LOG_LEVEL"))); err != nil {
+		return slog.LevelInfo
+	}
+
+	return level
 }

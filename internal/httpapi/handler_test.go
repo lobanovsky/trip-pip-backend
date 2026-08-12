@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,13 +12,18 @@ import (
 
 const testVersion = "test-commit"
 
+// discardLogger keeps handler tests focused on responses; logging has its own tests.
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(io.Discard, nil))
+}
+
 func TestPing(t *testing.T) {
 	t.Parallel()
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil)
 	response := httptest.NewRecorder()
 
-	NewHandler(testVersion).ServeHTTP(response, request)
+	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
@@ -44,7 +51,7 @@ func TestVersion(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
 	response := httptest.NewRecorder()
 
-	NewHandler(testVersion).ServeHTTP(response, request)
+	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
@@ -69,7 +76,7 @@ func TestPingRejectsUnsupportedMethod(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/ping", strings.NewReader("{}"))
 	response := httptest.NewRecorder()
 
-	NewHandler(testVersion).ServeHTTP(response, request)
+	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
 
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
@@ -82,7 +89,7 @@ func TestUnknownRoute(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/unknown", nil)
 	response := httptest.NewRecorder()
 
-	NewHandler(testVersion).ServeHTTP(response, request)
+	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusNotFound)

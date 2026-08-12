@@ -27,7 +27,7 @@ COPY --from=build /out/trip-pip-backend ./trip-pip-backend
 USER 65532:65532
 EXPOSE 8080
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --quiet --spider http://127.0.0.1:8080/api/v1/ping || exit 1
 
 ENTRYPOINT ["/app/trip-pip-backend"]

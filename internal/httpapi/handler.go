@@ -2,7 +2,13 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+)
+
+const (
+	pingPath    = "/api/v1/ping"
+	versionPath = "/api/v1/version"
 )
 
 type pingResponse struct {
@@ -14,12 +20,13 @@ type versionResponse struct {
 }
 
 // NewHandler returns the HTTP API handler reporting the given build version.
-func NewHandler(version string) http.Handler {
+// Requests are logged through logger; see withLogging for the levels used.
+func NewHandler(logger *slog.Logger, version string) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/ping", handlePing)
-	mux.HandleFunc("GET /api/v1/version", handleVersion(version))
+	mux.HandleFunc("GET "+pingPath, handlePing)
+	mux.HandleFunc("GET "+versionPath, handleVersion(version))
 
-	return mux
+	return withLogging(logger, mux)
 }
 
 func handlePing(w http.ResponseWriter, _ *http.Request) {
