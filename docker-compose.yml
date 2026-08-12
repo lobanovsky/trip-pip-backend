@@ -11,3 +11,10 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+
+    networks:
+      - trip-pip-network
+
+networks:
+  trip-pip-network:
+    external: true
