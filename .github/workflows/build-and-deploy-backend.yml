@@ -97,8 +97,9 @@ jobs:
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           TAG: ${{ needs.publish.outputs.tag }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          printf 'DOCKER_USERNAME=%s\nTAG=%s\nHOST_PORT=%s\n' "$DOCKER_USERNAME" "$TAG" "$HOST_PORT" > .env.deploy
+          printf 'DOCKER_USERNAME=%s\nTAG=%s\nHOST_PORT=%s\nDATABASE_URL=%s\n' "$DOCKER_USERNAME" "$TAG" "$HOST_PORT" "$DATABASE_URL" > .env.deploy
           cp docker-compose.yml docker-compose.yml.deploy
 
       - name: Copy deployment files
