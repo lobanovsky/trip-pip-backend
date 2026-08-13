@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/lobanovsky/trip-pip-backend/internal/store"
@@ -376,21 +377,9 @@ func invalidIDs(customerID string, touristIDs []string) map[string]string {
 }
 
 func isKnownStatus(status string) bool {
-	for _, known := range store.AllStatuses {
-		if status == known {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(store.AllStatuses, status)
 }
 
 func isKnownDeadlineKind(kind string) bool {
-	for _, known := range store.DeadlineKinds {
-		if kind == known {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(store.DeadlineKinds, kind)
 }
