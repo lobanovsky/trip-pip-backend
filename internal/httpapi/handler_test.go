@@ -12,7 +12,7 @@ import (
 
 const testVersion = "test-commit"
 
-// discardLogger keeps handler tests focused on responses; logging has its own tests.
+// discardLogger позволяет тестам обработчиков сосредоточиться на ответах; у логирования есть свои тесты.
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, nil))
 }
@@ -23,7 +23,7 @@ func TestPing(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
 	response := httptest.NewRecorder()
 
-	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
+	NewHandler(discardLogger(), testVersion, Deps{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
@@ -51,7 +51,7 @@ func TestVersion(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/version", nil)
 	response := httptest.NewRecorder()
 
-	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
+	NewHandler(discardLogger(), testVersion, Deps{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
@@ -76,7 +76,7 @@ func TestPingRejectsUnsupportedMethod(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/ping", strings.NewReader("{}"))
 	response := httptest.NewRecorder()
 
-	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
+	NewHandler(discardLogger(), testVersion, Deps{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
@@ -89,7 +89,7 @@ func TestUnknownRoute(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
 	response := httptest.NewRecorder()
 
-	NewHandler(discardLogger(), testVersion).ServeHTTP(response, request)
+	NewHandler(discardLogger(), testVersion, Deps{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusNotFound)

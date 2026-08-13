@@ -1,6 +1,7 @@
-// Package buildinfo exposes build metadata stamped into the binary at link time.
+// Package buildinfo предоставляет метаданные сборки, встроенные в бинарник на этапе компоновки.
 package buildinfo
 
-// Commit identifies the source commit the binary was built from. Release builds
-// override it via -ldflags -X; local builds keep the default.
+// Commit определяет коммит исходного кода, из которого собран бинарник.
+// Релизные сборки переопределяют его через -ldflags -X; локальные сборки
+// сохраняют значение по умолчанию.
 var Commit = "dev"

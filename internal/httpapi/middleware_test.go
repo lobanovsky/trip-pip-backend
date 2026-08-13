@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-// testLogger writes JSON records into buf, keeping everything at or above level.
+// testLogger пишет JSON-записи в buf, сохраняя всё на уровне level и выше.
 func testLogger(buf *bytes.Buffer, level slog.Level) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: level}))
 }
 
-// logRecords decodes every JSON record the logger has written so far.
+// logRecords декодирует все JSON-записи, которые логгер успел записать.
 func logRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	t.Helper()
 
@@ -31,10 +31,10 @@ func logRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	return records
 }
 
-// doRequest runs one request through the full handler and returns the response.
+// doRequest пропускает один запрос через полный обработчик и возвращает ответ.
 func doRequest(buf *bytes.Buffer, level slog.Level, request *http.Request) *httptest.ResponseRecorder {
 	response := httptest.NewRecorder()
-	NewHandler(testLogger(buf, level), testVersion).ServeHTTP(response, request)
+	NewHandler(testLogger(buf, level), testVersion, Deps{}).ServeHTTP(response, request)
 
 	return response
 }
