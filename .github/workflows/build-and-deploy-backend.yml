@@ -14,8 +14,6 @@ permissions:
 
 env:
   IMAGE_NAME: trip-pip-backend
-  # Порт на хосте: 8080 занят другим сервисом на боевом сервере.
-  HOST_PORT: "8077"
 
 jobs:
   test:
@@ -99,7 +97,7 @@ jobs:
           TAG: ${{ needs.publish.outputs.tag }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          printf 'DOCKER_USERNAME=%s\nTAG=%s\nHOST_PORT=%s\nDATABASE_URL=%s\n' "$DOCKER_USERNAME" "$TAG" "$HOST_PORT" "$DATABASE_URL" > .env.deploy
+          printf 'DOCKER_USERNAME=%s\nTAG=%s\nDATABASE_URL=%s\n' "$DOCKER_USERNAME" "$TAG" "$DATABASE_URL" > .env.deploy
           cp docker-compose.yml docker-compose.yml.deploy
 
       - name: Copy deployment files
@@ -134,11 +132,13 @@ jobs:
 
             deployment_ok=false
             expected_commit="${{ github.sha }}"
-            base_url="http://127.0.0.1:${{ env.HOST_PORT }}"
+            # Бэкенд больше не публикует порт на хосте (см. docker-compose.yml) —
+            # проверяем здоровье изнутри контейнера через docker compose exec.
             if docker compose pull backend && docker compose up -d backend; then
               attempt=1
               while [ "$attempt" -le 30 ]; do
-                if curl --fail --silent --show-error "$base_url/api/ping" >/dev/null && curl --fail --silent --show-error "$base_url/api/version" | grep -q "\"commit\":\"$expected_commit\""; then
+                if docker compose exec -T backend wget -q -O- http://127.0.0.1:8080/api/ping >/dev/null 2>&1 && \
+                   docker compose exec -T backend wget -q -O- http://127.0.0.1:8080/api/version 2>/dev/null | grep -q "\"commit\":\"$expected_commit\""; then
                   deployment_ok=true
                   break
                 fi
@@ -154,7 +154,7 @@ jobs:
 
             echo "Deployment health check failed; restoring previous version"
             echo "Expected commit: $expected_commit"
-            echo "Reported version: $(curl --fail --silent "$base_url/api/version" || echo unavailable)"
+            echo "Reported version: $(docker compose exec -T backend wget -q -O- http://127.0.0.1:8080/api/version 2>/dev/null || echo unavailable)"
             echo "Container state:"
             docker compose ps
             docker compose logs --tail 20 backend || true
