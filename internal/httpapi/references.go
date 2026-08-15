@@ -17,14 +17,17 @@ func (a *api) handleReferences(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"applicationStatuses":   store.AllStatuses,
-		"statusTransitions":     transitions,
-		"deadlineKinds":         store.DeadlineKinds,
-		"payerKinds":            []string{store.PayerIndividual, store.PayerCompany},
-		"partnerKinds":          []string{"person", "company"},
-		"genders":               []string{"male", "female"},
-		"touristSortOptions":    []string{"lastName", "-lastName", "createdAt", "-createdAt", "updatedAt", "-updatedAt"},
-		"applicationSortFields": []string{"number", "-number", "createdAt", "-createdAt", "updatedAt", "-updatedAt", "departDate", "-departDate"},
+		"applicationStatuses":        store.AllStatuses,
+		"statusTransitions":          transitions,
+		"deadlineKinds":              store.DeadlineKinds,
+		"payerKinds":                 []string{store.PayerIndividual, store.PayerCompany},
+		"partnerKinds":               []string{"person", "company"},
+		"transactionKinds":           store.AllTransactionKinds,
+		"paymentMethods":             store.AllPaymentMethods,
+		"applicationPaymentStatuses": store.AllPaymentStatuses,
+		"genders":                    []string{"male", "female"},
+		"touristSortOptions":         []string{"lastName", "-lastName", "createdAt", "-createdAt", "updatedAt", "-updatedAt"},
+		"applicationSortFields":      []string{"number", "-number", "createdAt", "-createdAt", "updatedAt", "-updatedAt", "departDate", "-departDate"},
 	})
 }
 

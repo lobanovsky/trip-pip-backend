@@ -97,6 +97,14 @@ func NewHandler(logger *slog.Logger, version string, deps Deps) http.Handler {
 	protect("PATCH /api/applications/{id}/deadlines/{deadlineId}", api.handleUpdateDeadline)
 	protect("DELETE /api/applications/{id}/deadlines/{deadlineId}", api.handleDeleteDeadline)
 
+	protect("GET /api/applications/{id}/transactions", api.handleListApplicationTransactions)
+	protect("POST /api/applications/{id}/transactions", api.handleCreateTransaction)
+	protect("DELETE /api/applications/{id}/transactions/{transactionId}", api.handleVoidTransaction)
+	protect("GET /api/applications/{id}/finance", api.handleApplicationFinance)
+
+	protect("GET /api/transactions", api.handleListTransactions)
+	protect("GET /api/reports/revenue", api.handleRevenueReport)
+
 	protect("GET /api/reminders", api.handleReminders)
 
 	// Нет общего маршрута "/": его регистрация имела бы приоритет над

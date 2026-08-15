@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -109,6 +110,28 @@ func boolQuery(r *http.Request, name string) bool {
 	parsed, err := strconv.ParseBool(r.URL.Query().Get(name))
 
 	return err == nil && parsed
+}
+
+// transactionKindQuery читает необязательный фильтр по виду транзакции,
+// отбрасывая неизвестное значение — так опечатка возвращает всё, а не ошибку.
+func transactionKindQuery(r *http.Request) string {
+	value := r.URL.Query().Get("kind")
+	if !slices.Contains(store.AllTransactionKinds, value) {
+		return ""
+	}
+
+	return value
+}
+
+// paymentStatusQuery читает необязательный фильтр заявок по статусу оплаты,
+// отбрасывая неизвестное значение — так опечатка возвращает всё, а не ошибку.
+func paymentStatusQuery(r *http.Request) string {
+	value := r.URL.Query().Get("paymentStatus")
+	if !slices.Contains(store.AllPaymentStatuses, value) {
+		return ""
+	}
+
+	return value
 }
 
 // statusQuery читает повторяющиеся фильтры по статусу, отбрасывая

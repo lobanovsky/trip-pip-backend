@@ -36,17 +36,18 @@ func (a *api) handleListApplications(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := store.ApplicationFilter{
-		Search:     searchQuery(r),
-		Statuses:   statusQuery(r),
-		TouristID:  uuidQuery(r, "touristId"),
-		OperatorID: uuidQuery(r, "tourOperatorId"),
-		ChannelID:  uuidQuery(r, "channelId"),
-		ManagerID:  uuidQuery(r, "managerUserId"),
-		DepartFrom: departFrom,
-		DepartTo:   departTo,
-		Sort:       r.URL.Query().Get("sort"),
-		Limit:      limit,
-		Offset:     offset,
+		Search:        searchQuery(r),
+		Statuses:      statusQuery(r),
+		TouristID:     uuidQuery(r, "touristId"),
+		OperatorID:    uuidQuery(r, "tourOperatorId"),
+		ChannelID:     uuidQuery(r, "channelId"),
+		ManagerID:     uuidQuery(r, "managerUserId"),
+		DepartFrom:    departFrom,
+		DepartTo:      departTo,
+		PaymentStatus: paymentStatusQuery(r),
+		Sort:          r.URL.Query().Get("sort"),
+		Limit:         limit,
+		Offset:        offset,
 	}
 
 	applications, total, err := a.deps.Store.ListApplications(r.Context(), identity.AgencyID, filter)

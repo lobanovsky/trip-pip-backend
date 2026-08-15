@@ -1,6 +1,6 @@
 # Trip-Pip Backend
 
-Backend Trip-Pip на Go. Первый этап реализует карточки туристов и заявки турагентства с изоляцией данных между агентствами, авторизацией по email и паролю и историей изменений. Хранилище — PostgreSQL.
+Backend Trip-Pip на Go. Реализованы карточки туристов и заявки турагентства (первый этап) и финансовый учёт — платежи, агентское вознаграждение, базовые отчёты (второй этап), с изоляцией данных между агентствами, авторизацией по email и паролю и историей изменений. Хранилище — PostgreSQL.
 
 ## Требования
 
@@ -82,7 +82,7 @@ DELETE /api/tourists/{id}
 GET    /api/tourists/{id}/applications
 GET    /api/tourists/{id}/history
 
-GET    /api/applications             ?q=&status=&touristId=&tourOperatorId=&channelId=&departFrom=&departTo=&sort=
+GET    /api/applications             ?q=&status=&touristId=&tourOperatorId=&channelId=&departFrom=&departTo=&paymentStatus=&sort=
 POST   /api/applications
 GET    /api/applications/{id}
 PATCH  /api/applications/{id}
@@ -95,15 +95,71 @@ POST   /api/applications/{id}/deadlines
 PATCH  /api/applications/{id}/deadlines/{deadlineId}
 DELETE /api/applications/{id}/deadlines/{deadlineId}
 
+GET    /api/applications/{id}/finance
+GET    /api/applications/{id}/transactions
+POST   /api/applications/{id}/transactions   {"kind": "...", "amount": "...", "payerId"/"tourOperatorId": "...", "paymentMethod": "...", "occurredAt": "...", "feeAmount": "...", "note": "..."}
+DELETE /api/applications/{id}/transactions/{transactionId}
+
 GET/POST/PATCH/DELETE  /api/partners
 GET/POST/PATCH/DELETE  /api/tour-operators
 GET/POST/PATCH/DELETE  /api/payers
 GET/POST/PATCH/DELETE  /api/acquisition-channels
 
+GET    /api/transactions             ?kind=&applicationId=&payerId=&tourOperatorId=&occurredFrom=&occurredTo=&limit=&offset=
+GET    /api/reports/revenue          ?unit=month|quarter|year&from=&to=
+
 GET    /api/reminders                ?withinDays=90
 GET    /api/references
 GET/POST /api/users
 ```
+
+### Статусная модель заявки
+
+Заявка проходит семь стадий жизненного цикла:
+
+| `status` | Стадия |
+|---|---|
+| `inquiry` | первичное обращение |
+| `selection` | подбор |
+| `approval` | согласование |
+| `booked` | бронирование |
+| `preparation` | подготовка к поездке |
+| `completed` | завершение — терминальная стадия |
+| `cancelled` | отмена — терминальная стадия |
+
+Статус меняется отдельным эндпоинтом `POST /api/applications/{id}/status`, а не через `PATCH /api/applications/{id}`: так каждый переход проверяется на допустимость и попадает в журнал изменений отдельной записью (`entity_changes.action = "status_change"`), а не растворяется среди правок остальных полей заявки.
+
+Правила переходов:
+
+- **Вперёд** — только на одну стадию за раз: `inquiry → selection` разрешён, `inquiry → completed` (в обход конвейера) отклоняется как `validation_failed`.
+- **Назад** — тоже на одну стадию, чтобы исправить ошибку на предыдущем шаге (например, `booked → approval`, если бронь пришлось отменить).
+- **Отмена** (`cancelled`) разрешена из любой нетерминальной стадии в любой момент, но обязательно с `cancelReason` в теле запроса — без причины запрос отклоняется как `validation_failed`.
+- Из терминальных стадий (`completed`, `cancelled`) переходов нет: заявку, которую нужно «переоткрыть», заводят заново, а не воскрешают старую.
+
+Граф переходов не захардкожен на фронтенде: `GET /api/references` отдаёт его вычисленным (`applicationStatuses` — порядок стадий, `statusTransitions` — карта «из какой стадии куда можно») — интерфейс строит доступные кнопки по этому ответу, а не по своей копии правил.
+
+Статус оплаты (`paymentStatus`) — отдельная, независимая производная величина: не поле заявки и не часть этой статусной модели, а результат сравнения баланса `payment_transactions` со стоимостью поездки (см. «Финансовый учёт» ниже). Заявка может быть, например, в стадии `booked` и одновременно `paymentStatus: "partial"` — стадии жизненного цикла и состояние оплаты меняются независимо друг от друга.
+
+### Финансовый учёт
+
+Заявка сама по себе несёт только `priceTotal`/`currency` — общую стоимость поездки. Факт движения денег — отдельная сущность, `payment_transactions`, доступная только через вложенные маршруты `/api/applications/{id}/transactions` (создание) и общий журнал агентства `GET /api/transactions` (для сверки и поиска «куда делась оплата»). Транзакции не редактируются: ошибочную можно только аннулировать (`DELETE .../transactions/{transactionId}`, мягкое удаление), исходная запись остаётся в истории.
+
+`kind` транзакции — один из четырёх видов, счёт-фактурных сущностей у него ровно две: плательщик (`payerId`) или туроператор (`tourOperatorId`), никогда оба сразу:
+
+| `kind` | Кто на другом конце | Смысл |
+|---|---|---|
+| `receipt` | `payerId` | поступление от плательщика (в т.ч. частичная оплата, доплата) |
+| `refund` | `payerId` | возврат плательщику |
+| `operator_transfer` | `tourOperatorId` | перечисление туроператору |
+| `bonus_income` | `tourOperatorId` | дополнительная выгода от туроператора (бонус, кешбэк) |
+
+Агентское вознаграждение отдельной строкой не хранится и вручную не вводится — это агрегат `priceTotal − Σ(operator_transfer)` по заявке, пересчитывается на лету при каждом запросе. `paymentMethod` — `cash`/`bank_transfer`/`card_acquiring`; при `card_acquiring` можно указать `feeAmount` — комиссию банка, она не вычитается из дохода агентства автоматически, а выводится отдельной строкой (`acquiringFees` в ответе `.../finance`), чтобы агентство решало само.
+
+`GET /api/applications/{id}/finance` отдаёт баланс заявки: `received`/`refunded`/`netReceived`/`transferred`/`bonusIncome`/`acquiringFees`, а также производные `commission`, `agencyIncome` (`commission + bonusIncome`) и `paymentStatus` (`unpaid`/`partial`/`paid`/`overpaid` — сравнение `received − refunded` с `priceTotal`). Если заявка полностью оплачена, открытые дедлайны вида `payment` (`application_deadlines`) закрываются автоматически той же транзакцией — единственная связь между платежами и дедлайнами; аннулирование поступления их обратно не открывает.
+
+`GET /api/reports/revenue` — базовый отчёт по периодам (без расчёта налога и выгрузки для КУДиР — это задел на будущее). Оборот (`receipts`/`refunds`/`transferred`/`bonusIncome`) группируется по дате самой транзакции (`occurredAt`); `commission` — не факт движения денег и своей даты не имеет, поэтому относится к периоду **последнего** `operator_transfer` по каждой заявке. Заявка без единого перевода туроператору в разбивку по периодам не попадает. Диапазон `[from, to]` ограничен пятью годами за один запрос.
+
+Финансовый учёт пока работает только для заявок в рублях (`currency = "RUB"`) — попытка провести транзакцию по заявке в другой валюте отклоняется как `validation_failed`.
 
 Списки возвращаются в конверте `{"items": [...], "total": N, "limit": 25, "offset": 0}`. `PATCH` — по образцу «загрузить карточку → изменить нужные поля → отправить»: поле, отсутствующее в теле, не меняется, `null` — очищает необязательное поле. Ошибки — в виде `{"error": {"code": "...", "message": "...", "fields": {...}}}`.
 
@@ -214,4 +270,7 @@ PostgreSQL, драйвер — `github.com/jackc/pgx/v5`. Миграции — �
 | `applications` | Заявки на поездку: статус, туроператор, направление, даты, стоимость. |
 | `application_tourists` | Связь заявок с туристами, которые в них участвуют. |
 | `application_deadlines` | Важные сроки по заявке: оплата, документы, виза, вылет и т.д. |
+| `payment_transactions` | Журнал фактов движения денег по заявке: поступления, возвраты, перечисления туроператору, дополнительная выгода. Агентское вознаграждение — не строка этой таблицы, а вычисляемая разница `priceTotal − Σ(operator_transfer)`. |
 | `entity_changes` | Журнал изменений — кто, что и когда поменял (для истории и аудита доступа). |
+
+`application_balances` — не таблица, а `VIEW` поверх `applications` и `payment_transactions`: агрегирует суммы по видам транзакций одной заявки одним запросом (`received`/`refunded`/`transferred`/`bonus_income`/`acquiring_fees`), на нём построены `GET /api/applications/{id}/finance` и фильтр `paymentStatus` в `GET /api/applications`.

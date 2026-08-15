@@ -585,17 +585,18 @@ func (s *Store) ensureCustomerLinked(ctx context.Context, agencyID, applicationI
 
 // ApplicationFilter управляет списком и поиском заявок.
 type ApplicationFilter struct {
-	Search     string
-	Statuses   []string
-	TouristID  string
-	OperatorID string
-	ChannelID  string
-	ManagerID  string
-	DepartFrom *Date
-	DepartTo   *Date
-	Sort       string
-	Limit      int
-	Offset     int
+	Search        string
+	Statuses      []string
+	TouristID     string
+	OperatorID    string
+	ChannelID     string
+	ManagerID     string
+	DepartFrom    *Date
+	DepartTo      *Date
+	PaymentStatus string
+	Sort          string
+	Limit         int
+	Offset        int
 }
 
 var applicationSortColumns = map[string]string{
@@ -631,8 +632,17 @@ func (s *Store) ListApplications(ctx context.Context, agencyID string, filter Ap
 		  AND ($9 = '' OR EXISTS (
 		        SELECT 1 FROM application_tourists at
 		        WHERE at.application_id = a.id AND at.tourist_id = $9::uuid))
+		  AND ($10 = '' OR (
+		        SELECT CASE
+		            WHEN b.price_total IS NULL THEN ''
+		            WHEN b.received - b.refunded <= 0 THEN 'unpaid'
+		            WHEN b.received - b.refunded < b.price_total THEN 'partial'
+		            WHEN b.received - b.refunded = b.price_total THEN 'paid'
+		            ELSE 'overpaid'
+		        END
+		        FROM application_balances b WHERE b.application_id = a.id) = $10)
 		ORDER BY ` + order + `
-		LIMIT $10 OFFSET $11`
+		LIMIT $11 OFFSET $12`
 
 	statuses := filter.Statuses
 	if statuses == nil {
@@ -641,7 +651,7 @@ func (s *Store) ListApplications(ctx context.Context, agencyID string, filter Ap
 
 	rows, err := s.db.Query(ctx, query, agencyID, searchTerm(filter.Search), statuses,
 		filter.OperatorID, filter.ChannelID, filter.ManagerID,
-		filter.DepartFrom, filter.DepartTo, filter.TouristID, filter.Limit, filter.Offset)
+		filter.DepartFrom, filter.DepartTo, filter.TouristID, filter.PaymentStatus, filter.Limit, filter.Offset)
 	if err != nil {
 		return nil, 0, mapError(err)
 	}

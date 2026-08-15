@@ -31,6 +31,8 @@ var protectedRoutes = []struct {
 	{http.MethodGet, "/api/partners"},
 	{http.MethodGet, "/api/tour-operators"},
 	{http.MethodGet, "/api/payers"},
+	{http.MethodGet, "/api/transactions"},
+	{http.MethodGet, "/api/reports/revenue"},
 	{http.MethodGet, "/api/reminders"},
 	{http.MethodGet, "/api/users"},
 	{http.MethodGet, "/api/references"},

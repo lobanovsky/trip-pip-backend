@@ -18,6 +18,7 @@ const (
 	EntityAcquisitionChannel = "acquisition_channel"
 	EntityUser               = "user"
 	EntitySession            = "session"
+	EntityPaymentTransaction = "payment_transaction"
 )
 
 // Действия, записываемые в журнал изменений.
