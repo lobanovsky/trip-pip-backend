@@ -107,6 +107,11 @@ GET/POST/PATCH/DELETE  /api/acquisition-channels
 
 GET    /api/transactions             ?kind=&applicationId=&payerId=&tourOperatorId=&occurredFrom=&occurredTo=&limit=&offset=
 GET    /api/reports/revenue          ?unit=month|quarter|year&from=&to=
+GET    /api/reports/applications     ?from=&to=
+GET    /api/reports/directions       ?from=&to=&limit=10
+GET    /api/reports/tour-operators   ?from=&to=&limit=10
+GET    /api/reports/channels         ?from=&to=&limit=10
+GET    /api/reports/repeat-customers ?from=&to=&limit=10
 
 GET    /api/reminders                ?withinDays=90
 GET    /api/references
@@ -174,6 +179,18 @@ curl -b cookies.txt http://127.0.0.1:8080/api/tourists
 ```
 
 Списки туристов маскируют номера документов (`****56`); полный номер отдаёт только `GET /api/tourists/{id}`.
+
+### Аналитика
+
+Дашборды поверх данных, которые уже есть после этапов «Туристы и заявки» и «Финансовый учёт» — новых таблиц под них не заводилось. Все пять эндпоинтов фильтруются по дате создания заявки/туриста (`created_at`), диапазон `[from, to]` — с тем же дефолтом (с начала текущего года по сегодня) и тем же лимитом в пять лет на один запрос, что и у `GET /api/reports/revenue`.
+
+- `GET /api/reports/applications` — статусная сводка (число заявок в каждой из семи стадий) плюс две метрики эффективности агентства: `conversionRate` (`completed / (completed + cancelled)`) и `averageCheck` (средний `priceTotal` по `completed`). Обе — `null`, если в периоде нет ни одной `completed`/`cancelled` заявки.
+- `GET /api/reports/directions` — топ стран по числу заявок и сумме `priceTotal`; заявки без указанной страны не входят.
+- `GET /api/reports/tour-operators` — то же самое в разрезе туроператора; заявки, оформленные через уже архивный (`archived`) операторский профиль, из отчёта не пропадают.
+- `GET /api/reports/channels` — источники клиентов: сколько новых туристов привёл канал (`tourists.createdAt`) и сколько заявок/выручки он принёс (`applications.createdAt`) — считаются раздельно, поэтому канал с активностью только по одной из метрик всё равно попадает в отчёт.
+- `GET /api/reports/repeat-customers` — доля повторных клиентов среди заказчиков, оформивших хотя бы одну заявку за период. «Повторный» — заказчик с 2+ **неотменёнными** заявками за всё время (не только за период) — единственная заявка, оставшаяся после вычета отмен, повторным клиентом не считается, даже если формально заявок было две.
+
+`limit`/`offset`-эндпоинты «топ-N» (`directions`/`tour-operators`/`channels`/`repeat-customers`) принимают `limit` (по умолчанию 10, не больше 50); `applications`/`repeat-customers` отдают агрегат-объект напрямую, без конверта `items`/`total`.
 
 ## Логирование
 

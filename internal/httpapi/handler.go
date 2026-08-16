@@ -104,6 +104,11 @@ func NewHandler(logger *slog.Logger, version string, deps Deps) http.Handler {
 
 	protect("GET /api/transactions", api.handleListTransactions)
 	protect("GET /api/reports/revenue", api.handleRevenueReport)
+	protect("GET /api/reports/applications", api.handleApplicationFunnelReport)
+	protect("GET /api/reports/directions", api.handleDirectionsReport)
+	protect("GET /api/reports/tour-operators", api.handleOperatorsReport)
+	protect("GET /api/reports/channels", api.handleChannelsReport)
+	protect("GET /api/reports/repeat-customers", api.handleRepeatCustomersReport)
 
 	protect("GET /api/reminders", api.handleReminders)
 

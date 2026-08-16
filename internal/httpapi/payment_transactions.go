@@ -181,36 +181,9 @@ func (a *api) handleRevenueReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	today := a.today()
-	from := store.Date{Year: today.Year, Month: 1, Day: 1}
-	to := today
-
-	if parsed, err := dateQuery(r, "from"); err != nil {
-		writeErrorFields(w, r, http.StatusBadRequest, codeValidation, "Проверьте параметры запроса",
-			map[string]string{"from": err.Error()})
-
-		return
-	} else if parsed != nil {
-		from = *parsed
-	}
-
-	if parsed, err := dateQuery(r, "to"); err != nil {
-		writeErrorFields(w, r, http.StatusBadRequest, codeValidation, "Проверьте параметры запроса",
-			map[string]string{"to": err.Error()})
-
-		return
-	} else if parsed != nil {
-		to = *parsed
-	}
-
-	fields := map[string]string{}
-	if to.Before(from) {
-		fields["to"] = "не может быть раньше from"
-	} else if to.DaysUntil(from) > maxRevenueRangeDays {
-		fields["to"] = "диапазон не может быть больше пяти лет"
-	}
-	if len(fields) > 0 {
-		writeErrorFields(w, r, http.StatusBadRequest, codeValidation, "Проверьте параметры запроса", fields)
+	from, to, fieldErrs := a.reportDateRange(r)
+	if len(fieldErrs) > 0 {
+		writeErrorFields(w, r, http.StatusBadRequest, codeValidation, "Проверьте параметры запроса", fieldErrs)
 
 		return
 	}
