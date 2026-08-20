@@ -16,16 +16,17 @@ const maxRequestBody = 1 << 20
 // Коды ошибок, возвращаемые в конверте ниже. Фронтенд переключается по ним,
 // поэтому относитесь к ним как к части контракта API.
 const (
-	codeBadRequest      = "bad_request"
-	codeValidation      = "validation_failed"
-	codeUnauthenticated = "unauthenticated"
-	codeForbidden       = "forbidden"
-	codeNotFound        = "not_found"
-	codeConflict        = "conflict"
-	codeVersionConflict = "version_conflict"
-	codeRateLimited     = "rate_limited"
-	codeUnavailable     = "database_unavailable"
-	codeInternal        = "internal_error"
+	codeBadRequest       = "bad_request"
+	codeValidation       = "validation_failed"
+	codeUnauthenticated  = "unauthenticated"
+	codeForbidden        = "forbidden"
+	codeEmailNotVerified = "email_not_verified"
+	codeNotFound         = "not_found"
+	codeConflict         = "conflict"
+	codeVersionConflict  = "version_conflict"
+	codeRateLimited      = "rate_limited"
+	codeUnavailable      = "database_unavailable"
+	codeInternal         = "internal_error"
 )
 
 type apiError struct {

@@ -96,8 +96,15 @@ jobs:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           TAG: ${{ needs.publish.outputs.tag }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
         run: |
-          printf 'DOCKER_USERNAME=%s\nTAG=%s\nDATABASE_URL=%s\n' "$DOCKER_USERNAME" "$TAG" "$DATABASE_URL" > .env.deploy
+          printf 'DOCKER_USERNAME=%s\nTAG=%s\nDATABASE_URL=%s\nSMTP_HOST=%s\nSMTP_PORT=%s\nSMTP_USERNAME=%s\nSMTP_PASSWORD=%s\nSMTP_FROM=%s\nPUBLIC_BASE_URL=%s\n' \
+            "$DOCKER_USERNAME" "$TAG" "$DATABASE_URL" "$SMTP_HOST" "$SMTP_PORT" "$SMTP_USERNAME" "$SMTP_PASSWORD" "$SMTP_FROM" "$PUBLIC_BASE_URL" > .env.deploy
           cp docker-compose.yml docker-compose.yml.deploy
 
       - name: Copy deployment files

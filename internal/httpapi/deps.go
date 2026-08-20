@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lobanovsky/trip-pip-backend/internal/auth"
+	"github.com/lobanovsky/trip-pip-backend/internal/mail"
 	"github.com/lobanovsky/trip-pip-backend/internal/store"
 )
 
@@ -23,6 +24,16 @@ type Deps struct {
 	SessionTTL    time.Duration
 	SecureCookies bool
 	LoginLimiter  *auth.RateLimiter
+
+	// MailSender шлёт письма подтверждения регистрации. nil, если SMTP не
+	// настроен — тогда POST /api/auth/register отвечает 503, а не молча
+	// заводит аккаунт, который некому подтвердить.
+	MailSender      mail.Sender
+	RegisterLimiter *auth.RateLimiter
+
+	// PublicBaseURL — адрес фронтенда, используется только чтобы собрать
+	// ссылку подтверждения в письме регистрации.
+	PublicBaseURL string
 }
 
 func (d Deps) withDefaults() Deps {
@@ -34,6 +45,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.LoginLimiter == nil {
 		d.LoginLimiter = auth.NewRateLimiter(5, 15*time.Minute)
+	}
+	if d.RegisterLimiter == nil {
+		d.RegisterLimiter = auth.NewRateLimiter(5, time.Hour)
 	}
 
 	return d

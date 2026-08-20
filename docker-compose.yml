@@ -8,6 +8,12 @@ services:
     environment:
       HTTP_ADDR: ":8080"
       DATABASE_URL: ${DATABASE_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
     read_only: true
     # no-new-privileges намеренно не используется: на боевом Ubuntu-хосте
     # (Docker 29.6.1, ядро 6.8.0-110) этот флаг ломает exec любого образа —

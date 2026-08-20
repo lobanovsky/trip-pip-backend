@@ -21,6 +21,7 @@ const (
 	defaultDBConnectTimeout = 10 * time.Second
 	defaultSessionTTL       = 24 * time.Hour
 	defaultTimezone         = "Europe/Moscow"
+	defaultSMTPPort         = "587"
 )
 
 // Config хранит всё, что нужно процессу для старта.
@@ -44,6 +45,12 @@ type Config struct {
 	Location *time.Location
 
 	Bootstrap Bootstrap
+	SMTP      SMTP
+
+	// PublicBaseURL — адрес, на который открывается фронтенд. Нужен, чтобы
+	// собрать ссылку подтверждения в письме регистрации; без него письмо
+	// отправить нечем.
+	PublicBaseURL string
 }
 
 // Bootstrap описывает первое агентство и пользователя, которые создаются,
@@ -57,6 +64,22 @@ type Bootstrap struct {
 // Enabled сообщает, заданы ли все три значения для bootstrap.
 func (b Bootstrap) Enabled() bool {
 	return b.AgencyName != "" && b.Email != "" && b.Password != ""
+}
+
+// SMTP описывает внешний релей для писем подтверждения регистрации.
+type SMTP struct {
+	Host     string
+	Port     string
+	Username string
+	Password string
+	From     string
+}
+
+// Enabled сообщает, настроен ли SMTP. Без него POST /api/auth/register
+// отвечает 503 — саморегистрация без возможности подтвердить email была бы
+// открытой дырой, а не удобством.
+func (s SMTP) Enabled() bool {
+	return s.Host != "" && s.From != ""
 }
 
 // HasDatabase сообщает, настроен ли сервис на работу с базой данных.
@@ -82,6 +105,14 @@ func Load() (Config, error) {
 			Email:      strings.TrimSpace(os.Getenv("BOOTSTRAP_USER_EMAIL")),
 			Password:   os.Getenv("BOOTSTRAP_USER_PASSWORD"),
 		},
+		SMTP: SMTP{
+			Host:     os.Getenv("SMTP_HOST"),
+			Port:     envString("SMTP_PORT", defaultSMTPPort),
+			Username: os.Getenv("SMTP_USERNAME"),
+			Password: os.Getenv("SMTP_PASSWORD"),
+			From:     os.Getenv("SMTP_FROM"),
+		},
+		PublicBaseURL: strings.TrimRight(os.Getenv("PUBLIC_BASE_URL"), "/"),
 	}
 
 	maxConns, err := envInt("DB_MAX_CONNS", defaultDBMaxConns)
@@ -139,6 +170,16 @@ func Load() (Config, error) {
 	if partial && !cfg.Bootstrap.Enabled() {
 		problems = append(problems, errors.New(
 			"BOOTSTRAP_AGENCY_NAME, BOOTSTRAP_USER_EMAIL and BOOTSTRAP_USER_PASSWORD must be set together"))
+	}
+
+	// SMTP_FROM без SMTP_HOST (или наоборот) — почти наверняка опечатка в
+	// деплое, а не намеренная полу-настройка: письма всё равно не уйдут.
+	smtpPartial := cfg.SMTP.Host != "" || cfg.SMTP.From != ""
+	if smtpPartial && !cfg.SMTP.Enabled() {
+		problems = append(problems, errors.New("SMTP_HOST and SMTP_FROM must be set together"))
+	}
+	if cfg.SMTP.Enabled() && cfg.PublicBaseURL == "" {
+		problems = append(problems, errors.New("PUBLIC_BASE_URL is required when SMTP is configured"))
 	}
 
 	if len(problems) > 0 {

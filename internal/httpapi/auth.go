@@ -94,6 +94,17 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Разглашается только после того, как пароль уже подтверждён верным:
+	// до этой строки нельзя отличить «неверный пароль» от «email не
+	// подтверждён», как и раньше нельзя отличить «неверный пароль» от
+	// «неизвестный адрес» — та же логика, что у VerifyDummy выше.
+	if user.EmailVerifiedAt == nil {
+		writeError(w, r, http.StatusForbidden, codeEmailNotVerified,
+			"Подтвердите email — мы отправили письмо со ссылкой при регистрации")
+
+		return
+	}
+
 	if needsRehash {
 		if rehashed, err := auth.HashPassword(request.Password); err == nil {
 			if err := a.deps.Store.SetUserPassword(r.Context(), user.AgencyID, user.ID, rehashed); err != nil {
@@ -103,6 +114,19 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	a.deps.LoginLimiter.Reset(limiterKey)
+
+	if err := a.deps.Store.MarkLogin(r.Context(), user.ID); err != nil {
+		a.logger.LogAttrs(r.Context(), slog.LevelWarn, "mark login failed", slog.String("error", err.Error()))
+	}
+
+	a.startSession(w, r, user, store.ActionLogin, "Вход в систему")
+}
+
+// startSession открывает сессию для уже проверенного пользователя — общий
+// хвост handleLogin и handleVerifyEmail (вход по паролю и вход сразу после
+// подтверждения email оканчиваются одинаково: cookie сессии и sessionResponse).
+func (a *api) startSession(w http.ResponseWriter, r *http.Request, user store.User, action, summary string) {
 	token := auth.NewSessionToken()
 	expiresAt := time.Now().Add(a.deps.SessionTTL)
 
@@ -113,11 +137,6 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.deps.Store.MarkLogin(r.Context(), user.ID); err != nil {
-		a.logger.LogAttrs(r.Context(), slog.LevelWarn, "mark login failed", slog.String("error", err.Error()))
-	}
-
-	a.deps.LoginLimiter.Reset(limiterKey)
 	a.setSessionCookie(w, token, expiresAt)
 
 	agency, err := a.deps.Store.Agency(r.Context(), user.AgencyID)
@@ -128,7 +147,7 @@ func (a *api) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.journal(r, user.AgencyID, store.Actor{UserID: user.ID, Label: user.FullName, RequestID: RequestID(r.Context())},
-		store.EntityUser, user.ID, store.ActionLogin, "Вход в систему")
+		store.EntityUser, user.ID, action, summary)
 
 	writeJSON(w, http.StatusOK, sessionResponse{
 		User:   sessionUser{ID: user.ID, Email: user.Email, FullName: user.FullName},

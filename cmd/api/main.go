@@ -20,6 +20,7 @@ import (
 	"github.com/lobanovsky/trip-pip-backend/internal/buildinfo"
 	"github.com/lobanovsky/trip-pip-backend/internal/config"
 	"github.com/lobanovsky/trip-pip-backend/internal/httpapi"
+	"github.com/lobanovsky/trip-pip-backend/internal/mail"
 	"github.com/lobanovsky/trip-pip-backend/internal/pg"
 	"github.com/lobanovsky/trip-pip-backend/internal/store"
 )
@@ -42,6 +43,19 @@ func main() {
 		Location:      cfg.Location,
 		SessionTTL:    cfg.SessionTTL,
 		SecureCookies: cfg.SecureCookies,
+		PublicBaseURL: cfg.PublicBaseURL,
+	}
+
+	if cfg.SMTP.Enabled() {
+		deps.MailSender = &mail.SMTPSender{
+			Host:     cfg.SMTP.Host,
+			Port:     cfg.SMTP.Port,
+			Username: cfg.SMTP.Username,
+			Password: cfg.SMTP.Password,
+			From:     cfg.SMTP.From,
+		}
+	} else {
+		logger.Warn("starting without SMTP configured: POST /api/auth/register will answer 503")
 	}
 
 	// DatabaseURL может быть пустым: тогда сервис обслуживает только
@@ -121,9 +135,10 @@ func main() {
 }
 
 // runBootstrap создаёт первое агентство и учётную запись администратора.
-// Публичного эндпоинта регистрации нет, поэтому это единственный способ
-// завести самую первую учётную запись; функция идемпотентна и ничего не
-// делает, если в базе уже есть хотя бы один пользователь.
+// Открытая саморегистрация (POST /api/auth/register) зависит от настроенного
+// SMTP, поэтому bootstrap остаётся запасным способом завести самую первую
+// учётную запись до того, как почта настроена; функция идемпотентна и ничего
+// не делает, если в базе уже есть хотя бы один пользователь.
 func runBootstrap(ctx context.Context, dataStore *store.Store, cfg config.Bootstrap, location *time.Location) error {
 	hash, err := auth.HashPassword(cfg.Password)
 	if err != nil {

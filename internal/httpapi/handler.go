@@ -36,6 +36,9 @@ func NewHandler(logger *slog.Logger, version string, deps Deps) http.Handler {
 	mux.HandleFunc("GET "+versionPath, handleVersion(version))
 	mux.HandleFunc("GET "+healthPath, api.handleHealth)
 	mux.HandleFunc("POST /api/auth/login", api.handleLogin)
+	mux.HandleFunc("POST /api/auth/register", api.handleRegister)
+	mux.HandleFunc("POST /api/auth/verify-email", api.handleVerifyEmail)
+	mux.HandleFunc("POST /api/auth/resend-verification", api.handleResendVerification)
 
 	// Защищённые маршруты. Авторизация подключается к каждому маршруту по
 	// отдельности, а не глобально, потому что у http.ServeMux нет групп

@@ -29,6 +29,12 @@ type User struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 
+	// EmailVerifiedAt — nil у самостоятельно зарегистрировавшегося
+	// пользователя, пока он не перешёл по ссылке из письма. Отдельно от
+	// IsActive: тот флаг занят под отключение коллеги администратором
+	// (SetUserActive) и означает совсем другое.
+	EmailVerifiedAt *time.Time `json:"emailVerifiedAt,omitempty"`
+
 	// PasswordHash никогда не сериализуется; тег json "-" стоит намеренно.
 	PasswordHash string `json:"-"`
 }
@@ -88,12 +94,12 @@ func (s *Store) Agency(ctx context.Context, id string) (Agency, error) {
 	return agency, nil
 }
 
-const userColumns = `id, agency_id, email, full_name, is_active, last_login_at, created_at, updated_at`
+const userColumns = `id, agency_id, email, full_name, is_active, last_login_at, created_at, updated_at, email_verified_at`
 
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var user User
 	err := row.Scan(&user.ID, &user.AgencyID, &user.Email, &user.FullName,
-		&user.IsActive, &user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt)
+		&user.IsActive, &user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.EmailVerifiedAt)
 	if err != nil {
 		return User{}, mapError(err)
 	}
@@ -103,10 +109,16 @@ func scanUser(row interface{ Scan(...any) error }) (User, error) {
 
 // CreateUser добавляет сотрудника в агентство. Вызывающая сторона передаёт
 // уже хешированный пароль: этот пакет никогда не видит пароль в открытом виде.
+//
+// email_verified_at проставляется сразу: и bootstrap, и POST /api/users
+// создают учётную запись по решению уже доверенного действующего лица
+// (оператора деплоя или вошедшего в систему коллеги), а не самого владельца
+// адреса — подтверждать здесь нечего. NULL остаётся только у пользователей,
+// заведённых через самостоятельную регистрацию (Store.RegisterAgency).
 func (s *Store) CreateUser(ctx context.Context, agencyID, email, passwordHash, fullName string) (User, error) {
 	const query = `
-		INSERT INTO users (agency_id, email, password_hash, full_name)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (agency_id, email, password_hash, full_name, email_verified_at)
+		VALUES ($1, $2, $3, $4, now())
 		RETURNING ` + userColumns
 
 	return scanUser(s.db.QueryRow(ctx, query, agencyID, email, passwordHash, fullName))
@@ -123,7 +135,7 @@ func (s *Store) UserByEmail(ctx context.Context, email string) (User, error) {
 
 	var user User
 	err := s.db.QueryRow(ctx, query, email).Scan(&user.ID, &user.AgencyID, &user.Email, &user.FullName,
-		&user.IsActive, &user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.PasswordHash)
+		&user.IsActive, &user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.EmailVerifiedAt, &user.PasswordHash)
 	if err != nil {
 		return User{}, mapError(err)
 	}
@@ -158,7 +170,7 @@ func (s *Store) ListUsers(ctx context.Context, agencyID string, limit, offset in
 	for rows.Next() {
 		var user User
 		if err := rows.Scan(&user.ID, &user.AgencyID, &user.Email, &user.FullName,
-			&user.IsActive, &user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &total); err != nil {
+			&user.IsActive, &user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.EmailVerifiedAt, &total); err != nil {
 			return nil, 0, mapError(err)
 		}
 		users = append(users, user)
