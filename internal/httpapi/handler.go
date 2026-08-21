@@ -52,6 +52,7 @@ func NewHandler(logger *slog.Logger, version string, deps Deps) http.Handler {
 
 	protect("GET /api/users", api.handleListUsers)
 	protect("POST /api/users", api.handleCreateUser)
+	protect("PATCH /api/users/{id}", api.handleUpdateUser)
 
 	protect("GET /api/references", api.handleReferences)
 

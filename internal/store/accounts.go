@@ -183,6 +183,16 @@ func (s *Store) ListUsers(ctx context.Context, agencyID string, limit, offset in
 	return users, total, nil
 }
 
+// SetUserFullName меняет отображаемое имя коллеги.
+func (s *Store) SetUserFullName(ctx context.Context, agencyID, id, fullName string) (User, error) {
+	const query = `
+		UPDATE users SET full_name = $3
+		WHERE agency_id = $1 AND id = $2
+		RETURNING ` + userColumns
+
+	return scanUser(s.db.QueryRow(ctx, query, agencyID, id, fullName))
+}
+
 // SetUserActive включает или отключает учётную запись коллеги.
 func (s *Store) SetUserActive(ctx context.Context, agencyID, id string, active bool) (User, error) {
 	const query = `

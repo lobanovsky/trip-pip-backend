@@ -79,3 +79,45 @@ func (a *api) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, user)
 }
+
+type updateUserRequest struct {
+	FullName string `json:"fullName"`
+}
+
+// handleUpdateUser меняет отображаемое имя коллеги. На первом этапе у всех
+// сотрудников агентства одинаковый доступ (см. handleCreateUser), поэтому
+// править имя — своё или чужое — может любой вошедший сотрудник того же агентства.
+func (a *api) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	identity, _ := Identity(r.Context())
+	id, ok := a.pathID(w, r, "id")
+	if !ok {
+		return
+	}
+
+	var request updateUserRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, r, http.StatusBadRequest, codeBadRequest, err.Error())
+
+		return
+	}
+
+	fullName := strings.TrimSpace(request.FullName)
+	if fullName == "" {
+		writeErrorFields(w, r, http.StatusBadRequest, codeValidation, "Проверьте заполнение полей",
+			map[string]string{"fullName": "обязательное поле"})
+
+		return
+	}
+
+	user, err := a.deps.Store.SetUserFullName(r.Context(), identity.AgencyID, id, fullName)
+	if err != nil {
+		a.writeStoreError(w, r, "update user", err)
+
+		return
+	}
+
+	a.journal(r, identity.AgencyID, identity.Actor(RequestID(r.Context())),
+		store.EntityUser, user.ID, store.ActionUpdate, user.FullName)
+
+	writeJSON(w, http.StatusOK, user)
+}
