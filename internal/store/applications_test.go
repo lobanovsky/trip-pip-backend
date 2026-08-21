@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -14,17 +15,31 @@ func TestCanTransition(t *testing.T) {
 		want     bool
 	}{
 		{StatusInquiry, StatusSelection, true},
-		{StatusInquiry, StatusCompleted, false},
+		{StatusInquiry, StatusCompleted, true},
 		{StatusInquiry, StatusCancelled, true},
-		{StatusCompleted, StatusInquiry, false},
-		{StatusCancelled, StatusSelection, false},
-		{StatusBooked, StatusApproval, true}, // возврат на стадию назад разрешён
+		{StatusCompleted, StatusInquiry, true},
+		{StatusCancelled, StatusSelection, true},
+		{StatusBooked, StatusBooked, false},
+		{"unknown", StatusApproval, false},
 	}
 
 	for _, tt := range tests {
 		if got := CanTransition(tt.from, tt.to); got != tt.want {
 			t.Errorf("CanTransition(%q, %q) = %v, want %v", tt.from, tt.to, got, tt.want)
 		}
+	}
+}
+
+func TestAllowedTransitionsReturnsEveryOtherKnownStatus(t *testing.T) {
+	t.Parallel()
+
+	got := AllowedTransitions(StatusCompleted)
+	want := []string{StatusInquiry, StatusSelection, StatusApproval, StatusBooked, StatusPreparation, StatusCancelled}
+	if !slices.Equal(got, want) {
+		t.Errorf("AllowedTransitions(%q) = %v, want %v", StatusCompleted, got, want)
+	}
+	if got := AllowedTransitions("unknown"); len(got) != 0 {
+		t.Errorf("AllowedTransitions(unknown) = %v, want empty", got)
 	}
 }
 
@@ -85,7 +100,7 @@ func TestCreateApplicationLinksTouristsAndNumbers(t *testing.T) {
 	}
 }
 
-func TestChangeStatusEnforcesTransitions(t *testing.T) {
+func TestChangeStatusAllowsAnyKnownStatus(t *testing.T) {
 	t.Parallel()
 
 	s := testStore(t)
@@ -98,21 +113,24 @@ func TestChangeStatusEnforcesTransitions(t *testing.T) {
 		t.Fatalf("CreateApplication() error = %v", err)
 	}
 
-	// inquiry -> completed пропускает весь конвейер и должен быть отклонён.
-	_, err = s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCompleted, nil)
-	var validationErr *ValidationError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("ChangeStatus() to completed from inquiry error = %v, want *ValidationError", err)
+	// Можно сразу выбрать любую рабочую стадию, минуя промежуточные.
+	updated, err := s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCompleted, nil)
+	if err != nil {
+		t.Fatalf("ChangeStatus() to completed error = %v", err)
+	}
+	if updated.Status != StatusCompleted {
+		t.Errorf("status = %q, want %q", updated.Status, StatusCompleted)
 	}
 
 	// отмена без указания причины должна быть отклонена.
 	_, err = s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCancelled, nil)
+	var validationErr *ValidationError
 	if !errors.As(err, &validationErr) {
 		t.Fatalf("ChangeStatus() to cancelled without reason error = %v, want *ValidationError", err)
 	}
 
-	// Допустимый переход вперёд проходит успешно и попадает в журнал.
-	updated, err := s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusSelection, nil)
+	// Из завершённой заявки можно вернуться на любой рабочий этап.
+	updated, err = s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusSelection, nil)
 	if err != nil {
 		t.Fatalf("ChangeStatus() to selection error = %v", err)
 	}
@@ -120,25 +138,162 @@ func TestChangeStatusEnforcesTransitions(t *testing.T) {
 		t.Errorf("status = %q, want %q", updated.Status, StatusSelection)
 	}
 
+	reason := "турист отказался"
+	updated, err = s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCancelled, &reason)
+	if err != nil {
+		t.Fatalf("ChangeStatus() to cancelled error = %v", err)
+	}
+	if updated.CancelReason == nil || *updated.CancelReason != reason {
+		t.Errorf("cancel reason = %v, want %q", updated.CancelReason, reason)
+	}
+
+	// Отменённую заявку можно восстановить, причина отмены при этом очищается.
+	updated, err = s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusBooked, nil)
+	if err != nil {
+		t.Fatalf("ChangeStatus() from cancelled error = %v", err)
+	}
+	if updated.Status != StatusBooked {
+		t.Errorf("status = %q, want %q", updated.Status, StatusBooked)
+	}
+	if updated.CancelReason != nil {
+		t.Errorf("cancel reason = %q, want nil", *updated.CancelReason)
+	}
+
 	entries, total, err := s.ListHistory(context.Background(), agency.ID, EntityApplication, app.ID, 10, 0)
 	if err != nil {
 		t.Fatalf("ListHistory() error = %v", err)
 	}
-	if total < 2 {
-		t.Fatalf("ListHistory() total = %d, want at least 2 (create + status_change)", total)
+	if total < 5 {
+		t.Fatalf("ListHistory() total = %d, want at least 5 (create + four status changes)", total)
 	}
 
-	foundTransition := false
+	foundTargets := map[string]bool{}
 	for _, entry := range entries {
 		if entry.Action == ActionStatusChange {
-			foundTransition = true
-			if change, ok := entry.Changes["status"]; !ok || change.To != StatusSelection {
-				t.Errorf("status_change entry = %+v, want To=%q", entry.Changes, StatusSelection)
+			if change, ok := entry.Changes["status"]; ok {
+				if target, ok := change.To.(string); ok {
+					foundTargets[target] = true
+				}
 			}
 		}
 	}
-	if !foundTransition {
-		t.Errorf("no status_change entry found in %+v", entries)
+	for _, target := range []string{StatusCompleted, StatusSelection, StatusCancelled, StatusBooked} {
+		if !foundTargets[target] {
+			t.Errorf("no status_change to %q found in %+v", target, entries)
+		}
+	}
+}
+
+func TestChangeStatusClearsStrayCancelReasonForNonCancelStatus(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство статусов")
+	customer := createTestTourist(t, s, agency.ID, 1)
+
+	app, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+		ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB"}, nil)
+	if err != nil {
+		t.Fatalf("CreateApplication() error = %v", err)
+	}
+
+	reason := "турист отказался"
+	if _, err := s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCancelled, &reason); err != nil {
+		t.Fatalf("ChangeStatus() to cancelled error = %v", err)
+	}
+
+	// Клиент прислал причину отмены вместе с переходом на рабочий статус — она
+	// не должна осесть в базе на не отменённой заявке.
+	strayReason := "случайно оставленный текст"
+	updated, err := s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusBooked, &strayReason)
+	if err != nil {
+		t.Fatalf("ChangeStatus() to booked error = %v", err)
+	}
+	if updated.CancelReason != nil {
+		t.Errorf("cancel reason = %q, want nil", *updated.CancelReason)
+	}
+}
+
+func TestChangeStatusUpdatesCancelReasonWithoutStatusChange(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство статусов")
+	customer := createTestTourist(t, s, agency.ID, 1)
+
+	app, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+		ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB"}, nil)
+	if err != nil {
+		t.Fatalf("CreateApplication() error = %v", err)
+	}
+
+	reason := "турист отказался"
+	cancelled, err := s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCancelled, &reason)
+	if err != nil {
+		t.Fatalf("ChangeStatus() to cancelled error = %v", err)
+	}
+
+	fixedReason := "турист отказался: не подошли даты"
+	updated, err := s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCancelled, &fixedReason)
+	if err != nil {
+		t.Fatalf("ChangeStatus() same status with new reason error = %v", err)
+	}
+	if updated.CancelReason == nil || *updated.CancelReason != fixedReason {
+		t.Errorf("cancel reason = %v, want %q", updated.CancelReason, fixedReason)
+	}
+	if !updated.StatusChangedAt.Equal(cancelled.StatusChangedAt) {
+		t.Errorf("statusChangedAt = %v, want unchanged %v (only cancelReason changed, not status)",
+			updated.StatusChangedAt, cancelled.StatusChangedAt)
+	}
+
+	entries, _, err := s.ListHistory(context.Background(), agency.ID, EntityApplication, app.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListHistory() error = %v", err)
+	}
+
+	var foundReasonChange bool
+	for _, entry := range entries {
+		if entry.Action != ActionStatusChange {
+			continue
+		}
+		if change, ok := entry.Changes["cancelReason"]; ok {
+			if to, ok := change.To.(string); ok && to == fixedReason {
+				foundReasonChange = true
+			}
+		}
+	}
+	if !foundReasonChange {
+		t.Errorf("no status_change entry recording cancelReason change to %q found in %+v", fixedReason, entries)
+	}
+
+	// Резолвинг того же статуса и той же причины — настоящий no-op, без ошибки.
+	if _, err := s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCancelled, &fixedReason); err != nil {
+		t.Fatalf("ChangeStatus() true no-op error = %v", err)
+	}
+}
+
+func TestChangeStatusResendingCancelledRequiresReason(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство статусов")
+	customer := createTestTourist(t, s, agency.ID, 1)
+
+	app, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+		ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB"}, nil)
+	if err != nil {
+		t.Fatalf("CreateApplication() error = %v", err)
+	}
+
+	reason := "турист отказался"
+	if _, err := s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCancelled, &reason); err != nil {
+		t.Fatalf("ChangeStatus() to cancelled error = %v", err)
+	}
+
+	_, err = s.ChangeStatus(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, StatusCancelled, nil)
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("ChangeStatus() re-cancel without reason error = %v, want *ValidationError", err)
 	}
 }
 

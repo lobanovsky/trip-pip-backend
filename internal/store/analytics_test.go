@@ -2,18 +2,10 @@ package store
 
 import (
 	"context"
-	"slices"
 	"testing"
 )
 
-// applicationForwardOrder — линейный путь заявки от первичного обращения до
-// завершения; на каждом шаге разрешён переход только на одну стадию вперёд.
-var applicationForwardOrder = []string{
-	StatusInquiry, StatusSelection, StatusApproval, StatusBooked, StatusPreparation, StatusCompleted,
-}
-
-// advanceApplicationTo проводит заявку по цепочке разрешённых переходов до
-// целевого статуса — по одному шагу за раз, как того требует CanTransition.
+// advanceApplicationTo устанавливает нужный тесту статус заявки.
 func advanceApplicationTo(t *testing.T, s *Store, agencyID, appID, target string) {
 	t.Helper()
 
@@ -26,14 +18,8 @@ func advanceApplicationTo(t *testing.T, s *Store, agencyID, appID, target string
 		return
 	}
 
-	idx := slices.Index(applicationForwardOrder, target)
-	if idx < 0 {
-		t.Fatalf("unknown target status %q", target)
-	}
-	for i := 1; i <= idx; i++ {
-		if _, err := s.ChangeStatus(context.Background(), agencyID, appID, Actor{Label: "test"}, applicationForwardOrder[i], nil); err != nil {
-			t.Fatalf("ChangeStatus(%s) error = %v", applicationForwardOrder[i], err)
-		}
+	if _, err := s.ChangeStatus(context.Background(), agencyID, appID, Actor{Label: "test"}, target, nil); err != nil {
+		t.Fatalf("ChangeStatus(%s) error = %v", target, err)
 	}
 }
 

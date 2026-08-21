@@ -26,29 +26,23 @@ var AllStatuses = []string{
 	StatusBooked, StatusPreparation, StatusCompleted, StatusCancelled,
 }
 
-// statusTransitions — граф допустимых переходов жизненного цикла. Заявка
-// движется вперёд по одной стадии за раз и может быть отменена из любого
-// нетерминального состояния; из терминальной стадии выхода нет.
-var statusTransitions = map[string][]string{
-	StatusInquiry:     {StatusSelection, StatusCancelled},
-	StatusSelection:   {StatusApproval, StatusInquiry, StatusCancelled},
-	StatusApproval:    {StatusBooked, StatusSelection, StatusCancelled},
-	StatusBooked:      {StatusPreparation, StatusApproval, StatusCancelled},
-	StatusPreparation: {StatusCompleted, StatusBooked, StatusCancelled},
-	StatusCompleted:   {},
-	StatusCancelled:   {},
-}
-
-// CanTransition сообщает, может ли заявка перейти между двумя стадиями.
+// CanTransition сообщает, можно ли выбрать целевую стадию. Менеджер может
+// исправить ошибочно выбранный статус и перейти на любой этап жизненного цикла.
 func CanTransition(from, to string) bool {
-	return slices.Contains(statusTransitions[from], to)
+	return from != to && slices.Contains(AllStatuses, from) && slices.Contains(AllStatuses, to)
 }
 
 // AllowedTransitions перечисляет стадии, достижимые из текущей.
 func AllowedTransitions(from string) []string {
-	allowed := statusTransitions[from]
-	if allowed == nil {
+	if !slices.Contains(AllStatuses, from) {
 		return []string{}
+	}
+
+	allowed := make([]string, 0, len(AllStatuses)-1)
+	for _, status := range AllStatuses {
+		if status != from {
+			allowed = append(allowed, status)
+		}
 	}
 
 	return allowed
@@ -391,8 +385,14 @@ func applicationInput(a Application) ApplicationInput {
 // ApplicationAsInput представляет сохранённую заявку в форме, в которую сливается PATCH.
 func ApplicationAsInput(a Application) ApplicationInput { return applicationInput(a) }
 
-// ChangeStatus продвигает заявку по её жизненному циклу.
+// ChangeStatus устанавливает выбранную стадию жизненного цикла.
 func (s *Store) ChangeStatus(ctx context.Context, agencyID, id string, actor Actor, status string, reason *string) (Application, error) {
+	if status != StatusCancelled {
+		// Причина отмены имеет смысл только для cancelled — не полагаемся на
+		// то, что клиент не пришлёт её вместе с остальными статусами.
+		reason = nil
+	}
+
 	var updated Application
 	err := s.inTx(ctx, func(tx *Store) error {
 		before, err := tx.Application(ctx, agencyID, id)
@@ -400,13 +400,7 @@ func (s *Store) ChangeStatus(ctx context.Context, agencyID, id string, actor Act
 			return err
 		}
 
-		if before.Status == status {
-			updated = before
-
-			return nil
-		}
-
-		if !CanTransition(before.Status, status) {
+		if before.Status != status && !CanTransition(before.Status, status) {
 			return &ValidationError{Fields: map[string]string{
 				"status": fmt.Sprintf("из статуса %q нельзя перейти в %q", before.Status, status),
 			}}
@@ -418,24 +412,43 @@ func (s *Store) ChangeStatus(ctx context.Context, agencyID, id string, actor Act
 			}}
 		}
 
+		if before.Status == status && equalValues(before.CancelReason, reason) {
+			updated = before
+
+			return nil
+		}
+
+		statusChanged := before.Status != status
+
 		const query = `
 			UPDATE applications
-			SET status = $3, status_changed_at = now(), cancel_reason = $4,
+			SET status = $3,
+			    status_changed_at = CASE WHEN $6 THEN now() ELSE status_changed_at END,
+			    cancel_reason = $4,
 			    updated_by = $5, version = version + 1
 			WHERE agency_id = $1 AND id = $2 AND archived_at IS NULL
 			RETURNING ` + applicationColumns
 
-		application, err := scanApplication(tx.db.QueryRow(ctx, query, agencyID, id, status, reason, nullString(actor.UserID)))
+		application, err := scanApplication(tx.db.QueryRow(ctx, query,
+			agencyID, id, status, reason, nullString(actor.UserID), statusChanged))
 		if err != nil {
 			return err
 		}
 		updated = application
 
+		changes := map[string]Change{}
+		if statusChanged {
+			changes["status"] = Change{From: before.Status, To: status}
+		}
+		if !equalValues(before.CancelReason, reason) {
+			changes["cancelReason"] = Change{From: derefValue(before.CancelReason), To: derefValue(reason)}
+		}
+
 		return tx.recordChange(ctx, agencyID, actor, changeRecord{
 			EntityType: EntityApplication,
 			EntityID:   id,
 			Action:     ActionStatusChange,
-			Changes:    map[string]Change{"status": {From: before.Status, To: status}},
+			Changes:    changes,
 			Summary:    "Заявка № " + application.Number,
 		})
 	})
