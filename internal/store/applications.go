@@ -56,11 +56,12 @@ type Application struct {
 	Status          string    `json:"status"`
 	StatusChangedAt time.Time `json:"statusChangedAt"`
 
-	CustomerTouristID    string  `json:"customerTouristId"`
-	ManagerUserID        *string `json:"managerUserId,omitempty"`
-	PayerID              *string `json:"payerId,omitempty"`
-	TourOperatorID       *string `json:"tourOperatorId,omitempty"`
-	AcquisitionChannelID *string `json:"acquisitionChannelId,omitempty"`
+	CustomerTouristID     string  `json:"customerTouristId"`
+	ManagerUserID         *string `json:"managerUserId,omitempty"`
+	PayerID               *string `json:"payerId,omitempty"`
+	TourOperatorID        *string `json:"tourOperatorId,omitempty"`
+	TourOperatorReference *string `json:"tourOperatorReference,omitempty"`
+	AcquisitionChannelID  *string `json:"acquisitionChannelId,omitempty"`
 
 	Country    *string `json:"country,omitempty"`
 	City       *string `json:"city,omitempty"`
@@ -95,11 +96,12 @@ type ApplicationTourist struct {
 // ApplicationInput — изменяемая часть заявки. Статуса здесь нет: он меняется
 // через собственный эндпоинт, чтобы каждый переход проверялся и попадал в журнал.
 type ApplicationInput struct {
-	CustomerTouristID    string  `json:"customerTouristId" history:"customerTouristId"`
-	ManagerUserID        *string `json:"managerUserId" history:"managerUserId"`
-	PayerID              *string `json:"payerId" history:"payerId"`
-	TourOperatorID       *string `json:"tourOperatorId" history:"tourOperatorId"`
-	AcquisitionChannelID *string `json:"acquisitionChannelId" history:"acquisitionChannelId"`
+	CustomerTouristID     string  `json:"customerTouristId" history:"customerTouristId"`
+	ManagerUserID         *string `json:"managerUserId" history:"managerUserId"`
+	PayerID               *string `json:"payerId" history:"payerId"`
+	TourOperatorID        *string `json:"tourOperatorId" history:"tourOperatorId"`
+	TourOperatorReference *string `json:"tourOperatorReference" history:"tourOperatorReference"`
+	AcquisitionChannelID  *string `json:"acquisitionChannelId" history:"acquisitionChannelId"`
 
 	Country    *string `json:"country" history:"country"`
 	City       *string `json:"city" history:"city"`
@@ -123,6 +125,7 @@ func (in *ApplicationInput) Normalize() {
 	trimPtr(&in.Hotel)
 	trimPtr(&in.Note)
 	trimPtr(&in.PriceTotal)
+	trimPtr(&in.TourOperatorReference)
 
 	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
 	if in.Currency == "" {
@@ -143,6 +146,7 @@ func (in ApplicationInput) Validate() error {
 	v.optional("resort", in.Resort, 100)
 	v.optional("hotel", in.Hotel, 200)
 	v.optional("note", in.Note, 4000)
+	v.optional("tourOperatorReference", in.TourOperatorReference, 100)
 
 	if !currencyRe.MatchString(in.Currency) {
 		v.add("currency", "код валюты — три заглавные латинские буквы")
@@ -174,14 +178,14 @@ func (in ApplicationInput) Validate() error {
 }
 
 const applicationColumns = `id, number, status, status_changed_at,
-	customer_tourist_id, manager_user_id, payer_id, tour_operator_id, acquisition_channel_id,
+	customer_tourist_id, manager_user_id, payer_id, tour_operator_id, tour_operator_reference, acquisition_channel_id,
 	country, city, resort, hotel, depart_date, return_date, adults, children,
 	price_total::text, currency, note, cancel_reason, version, created_at, updated_at`
 
 func applicationScanTargets(a *Application) []any {
 	return []any{
 		&a.ID, &a.Number, &a.Status, &a.StatusChangedAt,
-		&a.CustomerTouristID, &a.ManagerUserID, &a.PayerID, &a.TourOperatorID, &a.AcquisitionChannelID,
+		&a.CustomerTouristID, &a.ManagerUserID, &a.PayerID, &a.TourOperatorID, &a.TourOperatorReference, &a.AcquisitionChannelID,
 		&a.Country, &a.City, &a.Resort, &a.Hotel, &a.DepartDate, &a.ReturnDate, &a.Adults, &a.Children,
 		&a.PriceTotal, &a.Currency, &a.Note, &a.CancelReason, &a.Version, &a.CreatedAt, &a.UpdatedAt,
 	}
@@ -198,7 +202,7 @@ func scanApplication(row interface{ Scan(...any) error }) (Application, error) {
 
 func applicationArgs(input ApplicationInput) []any {
 	return []any{
-		input.CustomerTouristID, input.ManagerUserID, input.PayerID, input.TourOperatorID,
+		input.CustomerTouristID, input.ManagerUserID, input.PayerID, input.TourOperatorID, input.TourOperatorReference,
 		input.AcquisitionChannelID, input.Country, input.City, input.Resort, input.Hotel,
 		input.DepartDate, input.ReturnDate, input.Adults, input.Children,
 		emptyNumeric(input.PriceTotal), input.Currency, input.Note,
@@ -248,10 +252,10 @@ func (s *Store) CreateApplication(ctx context.Context, agencyID string, actor Ac
 
 		const query = `
 			INSERT INTO applications (
-			    agency_id, number, customer_tourist_id, manager_user_id, payer_id, tour_operator_id,
+			    agency_id, number, customer_tourist_id, manager_user_id, payer_id, tour_operator_id, tour_operator_reference,
 			    acquisition_channel_id, country, city, resort, hotel, depart_date, return_date,
 			    adults, children, price_total, currency, note, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20)
 			RETURNING ` + applicationColumns
 
 		args := append([]any{agencyID, number}, applicationArgs(input)...)
@@ -318,10 +322,10 @@ func (s *Store) UpdateApplication(ctx context.Context, agencyID, id string, acto
 
 		const query = `
 			UPDATE applications SET
-			    customer_tourist_id = $3, manager_user_id = $4, payer_id = $5, tour_operator_id = $6,
-			    acquisition_channel_id = $7, country = $8, city = $9, resort = $10, hotel = $11,
-			    depart_date = $12, return_date = $13, adults = $14, children = $15,
-			    price_total = $16, currency = $17, note = $18, updated_by = $19, version = version + 1
+			    customer_tourist_id = $3, manager_user_id = $4, payer_id = $5, tour_operator_id = $6, tour_operator_reference = $7,
+			    acquisition_channel_id = $8, country = $9, city = $10, resort = $11, hotel = $12,
+			    depart_date = $13, return_date = $14, adults = $15, children = $16,
+			    price_total = $17, currency = $18, note = $19, updated_by = $20, version = version + 1
 			WHERE agency_id = $1 AND id = $2 AND archived_at IS NULL
 			RETURNING ` + applicationColumns
 
@@ -363,22 +367,23 @@ func (s *Store) UpdateApplication(ctx context.Context, agencyID, id string, acto
 
 func applicationInput(a Application) ApplicationInput {
 	return ApplicationInput{
-		CustomerTouristID:    a.CustomerTouristID,
-		ManagerUserID:        a.ManagerUserID,
-		PayerID:              a.PayerID,
-		TourOperatorID:       a.TourOperatorID,
-		AcquisitionChannelID: a.AcquisitionChannelID,
-		Country:              a.Country,
-		City:                 a.City,
-		Resort:               a.Resort,
-		Hotel:                a.Hotel,
-		DepartDate:           a.DepartDate,
-		ReturnDate:           a.ReturnDate,
-		Adults:               a.Adults,
-		Children:             a.Children,
-		PriceTotal:           a.PriceTotal,
-		Currency:             a.Currency,
-		Note:                 a.Note,
+		CustomerTouristID:     a.CustomerTouristID,
+		ManagerUserID:         a.ManagerUserID,
+		PayerID:               a.PayerID,
+		TourOperatorID:        a.TourOperatorID,
+		TourOperatorReference: a.TourOperatorReference,
+		AcquisitionChannelID:  a.AcquisitionChannelID,
+		Country:               a.Country,
+		City:                  a.City,
+		Resort:                a.Resort,
+		Hotel:                 a.Hotel,
+		DepartDate:            a.DepartDate,
+		ReturnDate:            a.ReturnDate,
+		Adults:                a.Adults,
+		Children:              a.Children,
+		PriceTotal:            a.PriceTotal,
+		Currency:              a.Currency,
+		Note:                  a.Note,
 	}
 }
 

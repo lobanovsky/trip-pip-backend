@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -323,5 +324,71 @@ func TestApplicationVersionConflict(t *testing.T) {
 		ApplicationAsInput(app), app.Version)
 	if !errors.Is(err, ErrVersionConflict) {
 		t.Fatalf("stale UpdateApplication() error = %v, want ErrVersionConflict", err)
+	}
+}
+
+func TestApplicationTourOperatorReference(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство номеров туроператора")
+	customer := createTestTourist(t, s, agency.ID, 1)
+
+	reference := "  TO-2026-00123  "
+	input := ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", TourOperatorReference: &reference}
+	input.Normalize()
+	created, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"}, input, nil)
+	if err != nil {
+		t.Fatalf("CreateApplication() error = %v", err)
+	}
+	if created.TourOperatorReference == nil || *created.TourOperatorReference != "TO-2026-00123" {
+		t.Errorf("tourOperatorReference = %v, want trimmed %q", created.TourOperatorReference, "TO-2026-00123")
+	}
+
+	updatedReference := "TO-2026-99999"
+	updateInput := ApplicationAsInput(created)
+	updateInput.TourOperatorReference = &updatedReference
+	updated, err := s.UpdateApplication(context.Background(), agency.ID, created.ID, Actor{Label: "test"}, updateInput, created.Version)
+	if err != nil {
+		t.Fatalf("UpdateApplication() error = %v", err)
+	}
+	if updated.TourOperatorReference == nil || *updated.TourOperatorReference != updatedReference {
+		t.Errorf("tourOperatorReference = %v, want %q", updated.TourOperatorReference, updatedReference)
+	}
+
+	entries, _, err := s.ListHistory(context.Background(), agency.ID, EntityApplication, created.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListHistory() error = %v", err)
+	}
+
+	var foundReferenceChange bool
+	for _, entry := range entries {
+		if entry.Action != ActionUpdate {
+			continue
+		}
+		if change, ok := entry.Changes["tourOperatorReference"]; ok {
+			if to, ok := change.To.(string); ok && to == updatedReference {
+				foundReferenceChange = true
+			}
+		}
+	}
+	if !foundReferenceChange {
+		t.Errorf("no update entry recording tourOperatorReference change to %q found in %+v", updatedReference, entries)
+	}
+}
+
+func TestApplicationInputValidatesTourOperatorReferenceLength(t *testing.T) {
+	t.Parallel()
+
+	tooLong := strings.Repeat("x", 101)
+	input := ApplicationInput{CustomerTouristID: "some-id", Currency: "RUB", TourOperatorReference: &tooLong}
+
+	err := input.Validate()
+	var validationErr *ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("Validate() error = %v, want *ValidationError", err)
+	}
+	if _, ok := validationErr.Fields["tourOperatorReference"]; !ok {
+		t.Errorf("fields = %+v, want tourOperatorReference present", validationErr.Fields)
 	}
 }
