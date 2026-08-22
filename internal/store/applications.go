@@ -86,6 +86,11 @@ type Application struct {
 
 	// Tourists заполняется эндпоинтом деталей, а не запросами списка.
 	Tourists []ApplicationTourist `json:"tourists,omitempty"`
+
+	// TouristCount и Finance — наоборот, заполняются только ListApplications:
+	// в Create/Update/Get/ChangeStatus JOIN'ов, из которых они считаются, нет.
+	TouristCount int                        `json:"touristCount,omitempty"`
+	Finance      *ApplicationFinanceSummary `json:"finance,omitempty"`
 }
 
 // ApplicationTourist связывает путешественника с заявкой.
@@ -631,8 +636,12 @@ type ApplicationFilter struct {
 	DepartTo      *Date
 	PaymentStatus string
 	Sort          string
-	Limit         int
-	Offset        int
+	// Today — «сегодня» в часовом поясе агентства, нужно только сортировке
+	// upcomingDepartDate. Считается на уровне HTTP (a.today()), а не через
+	// now()/CURRENT_DATE в SQL — как и везде в этой кодовой базе.
+	Today  Date
+	Limit  int
+	Offset int
 }
 
 var applicationSortColumns = map[string]string{
@@ -646,16 +655,57 @@ var applicationSortColumns = map[string]string{
 	"-departDate": "depart_date DESC NULLS LAST",
 }
 
-// ListApplications возвращает заявки, подходящие под фильтр.
+// ListApplications возвращает заявки, подходящие под фильтр, вместе с
+// touristCount и денежной сводкой на строку — одним запросом, без N+1 к
+// application_tourists/application_balances на каждую заявку.
 func (s *Store) ListApplications(ctx context.Context, agencyID string, filter ApplicationFilter) ([]Application, int, error) {
-	order, ok := applicationSortColumns[filter.Sort]
-	if !ok {
-		order = applicationSortColumns["-createdAt"]
+	statuses := filter.Statuses
+	if statuses == nil {
+		statuses = []string{}
 	}
 
+	args := []any{
+		agencyID, searchTerm(filter.Search), statuses,
+		filter.OperatorID, filter.ChannelID, filter.ManagerID,
+		filter.DepartFrom, filter.DepartTo, filter.TouristID, filter.PaymentStatus,
+	}
+
+	var order string
+	if filter.Sort == "upcomingDepartDate" {
+		// Сегодня и будущее — по возрастанию (ближайший вылет первый),
+		// прошлое — по убыванию (свежее прошлое первое), без даты — в конце.
+		// a.id — стабильный вторичный порядок для пагинации.
+		today := len(args) + 1
+		args = append(args, filter.Today)
+		order = fmt.Sprintf(`
+			CASE WHEN a.depart_date IS NULL THEN 2
+			     WHEN a.depart_date >= $%d THEN 0
+			     ELSE 1 END,
+			CASE WHEN a.depart_date >= $%d THEN a.depart_date END ASC,
+			CASE WHEN a.depart_date < $%d THEN a.depart_date END DESC,
+			a.id`, today, today, today)
+	} else {
+		var ok bool
+		order, ok = applicationSortColumns[filter.Sort]
+		if !ok {
+			order = applicationSortColumns["-createdAt"]
+		}
+	}
+
+	limitParam, offsetParam := len(args)+1, len(args)+2
+	args = append(args, filter.Limit, filter.Offset)
+
 	query := `
-		SELECT ` + applicationColumns + `, count(*) OVER () AS total
+		SELECT ` + applicationColumns + `,
+		    (SELECT count(*) FROM application_tourists at2 WHERE at2.application_id = a.id)::int AS tourist_count,
+		    coalesce(bal.transferred, 0)::text AS transferred,
+		    coalesce(bal.received - bal.refunded, 0)::text AS net_received,
+		    CASE WHEN a.price_total IS NULL THEN NULL ELSE (a.price_total - bal.transferred + bal.bonus_income)::text END AS agency_income,
+		    count(*) OVER () AS total
 		FROM applications a
+		LEFT JOIN (
+		    SELECT application_id, transferred, received, refunded, bonus_income FROM application_balances
+		) bal ON bal.application_id = a.id
 		WHERE a.agency_id = $1
 		  AND a.archived_at IS NULL
 		  AND ($2 = '' OR a.search_text LIKE '%' || $2 || '%')
@@ -677,17 +727,10 @@ func (s *Store) ListApplications(ctx context.Context, agencyID string, filter Ap
 		            ELSE 'overpaid'
 		        END
 		        FROM application_balances b WHERE b.application_id = a.id) = $10)
-		ORDER BY ` + order + `
-		LIMIT $11 OFFSET $12`
+		ORDER BY ` + order + fmt.Sprintf(`
+		LIMIT $%d OFFSET $%d`, limitParam, offsetParam)
 
-	statuses := filter.Statuses
-	if statuses == nil {
-		statuses = []string{}
-	}
-
-	rows, err := s.db.Query(ctx, query, agencyID, searchTerm(filter.Search), statuses,
-		filter.OperatorID, filter.ChannelID, filter.ManagerID,
-		filter.DepartFrom, filter.DepartTo, filter.TouristID, filter.PaymentStatus, filter.Limit, filter.Offset)
+	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, mapError(err)
 	}
@@ -697,9 +740,17 @@ func (s *Store) ListApplications(ctx context.Context, agencyID string, filter Ap
 	total := 0
 	for rows.Next() {
 		var application Application
-		targets := append(applicationScanTargets(&application), &total)
+		var touristCount int
+		var transferred, netReceived string
+		var agencyIncome *string
+		targets := append(applicationScanTargets(&application),
+			&touristCount, &transferred, &netReceived, &agencyIncome, &total)
 		if err := rows.Scan(targets...); err != nil {
 			return nil, 0, mapError(err)
+		}
+		application.TouristCount = touristCount
+		application.Finance = &ApplicationFinanceSummary{
+			Transferred: transferred, NetReceived: netReceived, AgencyIncome: agencyIncome,
 		}
 		applications = append(applications, application)
 	}

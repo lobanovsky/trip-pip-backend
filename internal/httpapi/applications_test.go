@@ -125,3 +125,76 @@ func TestCreateApplicationRejectsUnknownCountryCode(t *testing.T) {
 		t.Fatalf("status = %d, want 400; body = %s", response.Code, response.Body)
 	}
 }
+
+func TestListApplicationsIncludesTouristCountAndFinance(t *testing.T) {
+	t.Parallel()
+
+	f := setupApplicationsTest(t)
+
+	createResponse := f.do(t, http.MethodPost, "/api/applications", map[string]any{
+		"customerTouristId": f.customerID,
+		"currency":          "RUB",
+		"priceTotal":        "500.00",
+	})
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201; body = %s", createResponse.Code, createResponse.Body)
+	}
+
+	listResponse := f.do(t, http.MethodGet, "/api/applications", nil)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200; body = %s", listResponse.Code, listResponse.Body)
+	}
+
+	var envelope listEnvelope[store.Application]
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(envelope.Items) != 1 {
+		t.Fatalf("Items = %+v, want 1 application", envelope.Items)
+	}
+
+	item := envelope.Items[0]
+	if item.TouristCount != 1 {
+		t.Errorf("TouristCount = %d, want 1 (customer only)", item.TouristCount)
+	}
+	if item.Finance == nil {
+		t.Fatal("Finance = nil, want a summary")
+	}
+	// application_balances (0003_payment_transactions.sql) отдаёт "0", а не
+	// "0.00", когда транзакций ещё нет вовсе: COALESCE(SUM(...), 0) теряет
+	// scale numeric(14,2) на literal-фоллбэке — это существующее поведение
+	// вьюхи, не то, что добавляет этот список.
+	if item.Finance.Transferred != "0" || item.Finance.NetReceived != "0" {
+		t.Errorf("Finance = %+v, want zero transferred/netReceived (no transactions yet)", item.Finance)
+	}
+	if item.Finance.AgencyIncome == nil || *item.Finance.AgencyIncome != "500.00" {
+		t.Errorf("Finance.AgencyIncome = %v, want 500.00 (full price, nothing transferred yet)", item.Finance.AgencyIncome)
+	}
+}
+
+func TestApplicationDetailOmitsTouristCountAndFinance(t *testing.T) {
+	t.Parallel()
+
+	f := setupApplicationsTest(t)
+
+	createResponse := f.do(t, http.MethodPost, "/api/applications", map[string]any{
+		"customerTouristId": f.customerID,
+		"currency":          "RUB",
+	})
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201; body = %s", createResponse.Code, createResponse.Body)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	// touristCount/finance — расширение только GET /api/applications
+	// (списка), не создания/деталей: их не должно быть в ответе вовсе.
+	if _, ok := raw["touristCount"]; ok {
+		t.Errorf("create response has touristCount, want absent: %+v", raw)
+	}
+	if _, ok := raw["finance"]; ok {
+		t.Errorf("create response has finance, want absent: %+v", raw)
+	}
+}

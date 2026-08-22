@@ -27,7 +27,7 @@ func (a *api) handleReferences(w http.ResponseWriter, r *http.Request) {
 		"applicationPaymentStatuses": store.AllPaymentStatuses,
 		"genders":                    []string{"male", "female"},
 		"touristSortOptions":         []string{"lastName", "-lastName", "createdAt", "-createdAt", "updatedAt", "-updatedAt"},
-		"applicationSortFields":      []string{"number", "-number", "createdAt", "-createdAt", "updatedAt", "-updatedAt", "departDate", "-departDate"},
+		"applicationSortFields":      []string{"number", "-number", "createdAt", "-createdAt", "updatedAt", "-updatedAt", "departDate", "-departDate", "upcomingDepartDate"},
 	})
 }
 

@@ -417,6 +417,17 @@ func (s *Store) ApplicationBalance(ctx context.Context, agencyID, applicationID 
 	return balance, nil
 }
 
+// ApplicationFinanceSummary — сокращённая денежная сводка для списка заявок
+// (в отличие от Balance, который отдаёт /applications/{id}/finance). Те же
+// формулы, что ApplicationBalance: Transferred — сумма operator_transfer,
+// NetReceived — received минус refunded, AgencyIncome — price_total минус
+// transferred плюс bonus_income (nil, если price_total не задана).
+type ApplicationFinanceSummary struct {
+	Transferred  string  `json:"transferred"`
+	NetReceived  string  `json:"netReceived"`
+	AgencyIncome *string `json:"agencyIncome,omitempty"`
+}
+
 // PeriodRevenue — суммы одного периода в базовом финансовом отчёте.
 type PeriodRevenue struct {
 	Period       Date   `json:"period"`

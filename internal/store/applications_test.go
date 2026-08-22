@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCanTransition(t *testing.T) {
@@ -457,5 +458,113 @@ func TestApplicationUpdateWithoutCountryCodePreservesIt(t *testing.T) {
 	}
 	if updated.Country == nil || *updated.Country != "Египет" {
 		t.Errorf("Country = %v, want Египет (unchanged)", updated.Country)
+	}
+}
+
+func TestListApplicationsIncludesTouristCountAndFinance(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство сводки")
+	customer := createTestTourist(t, s, agency.ID, 1)
+	companion := createTestTourist(t, s, agency.ID, 2)
+	payer := createTestPayer(t, s, agency.ID, customer.ID)
+	operator := createTestOperator(t, s, agency.ID, "Оператор сводки")
+
+	price := "1000.00"
+	app, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+		ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", PriceTotal: &price}, []string{companion.ID})
+	if err != nil {
+		t.Fatalf("CreateApplication() error = %v", err)
+	}
+
+	for _, tx := range []TransactionInput{
+		{Kind: TransactionReceipt, Amount: "600.00", PaymentMethod: PaymentMethodCash, PayerID: &payer.ID, OccurredAt: NewDate(time.Now())},
+		{Kind: TransactionRefund, Amount: "100.00", PaymentMethod: PaymentMethodCash, PayerID: &payer.ID, OccurredAt: NewDate(time.Now())},
+		{Kind: TransactionOperatorTransfer, Amount: "850.00", PaymentMethod: PaymentMethodTransfer, TourOperatorID: &operator.ID, OccurredAt: NewDate(time.Now())},
+		{Kind: TransactionBonusIncome, Amount: "20.00", PaymentMethod: PaymentMethodTransfer, TourOperatorID: &operator.ID, OccurredAt: NewDate(time.Now())},
+	} {
+		if _, err := s.CreateTransaction(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, tx); err != nil {
+			t.Fatalf("CreateTransaction(%q) error = %v", tx.Kind, err)
+		}
+	}
+
+	applications, _, err := s.ListApplications(context.Background(), agency.ID, ApplicationFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListApplications() error = %v", err)
+	}
+
+	var found *Application
+	for i := range applications {
+		if applications[i].ID == app.ID {
+			found = &applications[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("application %s not found in list %+v", app.ID, applications)
+	}
+
+	if found.TouristCount != 2 {
+		t.Errorf("TouristCount = %d, want 2 (customer + companion)", found.TouristCount)
+	}
+	if found.Finance == nil {
+		t.Fatal("Finance = nil, want a summary")
+	}
+	if found.Finance.Transferred != "850.00" {
+		t.Errorf("Finance.Transferred = %q, want 850.00", found.Finance.Transferred)
+	}
+	if found.Finance.NetReceived != "500.00" {
+		t.Errorf("Finance.NetReceived = %q, want 500.00 (600 receipt − 100 refund)", found.Finance.NetReceived)
+	}
+	if found.Finance.AgencyIncome == nil || *found.Finance.AgencyIncome != "170.00" {
+		t.Errorf("Finance.AgencyIncome = %v, want 170.00 (1000 price − 850 transferred + 20 bonus)", found.Finance.AgencyIncome)
+	}
+}
+
+func TestListApplicationsSortsByUpcomingDepartDate(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство сортировки вылетов")
+	customer := createTestTourist(t, s, agency.ID, 1)
+	today := NewDate(time.Now())
+
+	dateAt := func(daysFromToday int) *Date {
+		d := NewDate(time.Now().AddDate(0, 0, daysFromToday))
+
+		return &d
+	}
+
+	create := func(depart *Date) string {
+		app, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+			ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", DepartDate: depart}, nil)
+		if err != nil {
+			t.Fatalf("CreateApplication() error = %v", err)
+		}
+
+		return app.ID
+	}
+
+	pastOld := create(dateAt(-10))
+	pastRecent := create(dateAt(-2))
+	departsToday := create(dateAt(0))
+	futureNear := create(dateAt(3))
+	futureFar := create(dateAt(10))
+	noDate := create(nil)
+
+	applications, _, err := s.ListApplications(context.Background(), agency.ID, ApplicationFilter{
+		Sort: "upcomingDepartDate", Today: today, Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListApplications() error = %v", err)
+	}
+
+	want := []string{departsToday, futureNear, futureFar, pastRecent, pastOld, noDate}
+	got := make([]string, 0, len(applications))
+	for _, app := range applications {
+		got = append(got, app.ID)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v (today/future ascending, past descending, no date last)", got, want)
 	}
 }

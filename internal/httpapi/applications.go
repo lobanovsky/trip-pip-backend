@@ -46,6 +46,7 @@ func (a *api) handleListApplications(w http.ResponseWriter, r *http.Request) {
 		DepartTo:      departTo,
 		PaymentStatus: paymentStatusQuery(r),
 		Sort:          r.URL.Query().Get("sort"),
+		Today:         a.today(),
 		Limit:         limit,
 		Offset:        offset,
 	}
