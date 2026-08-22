@@ -57,6 +57,8 @@ func NewHandler(logger *slog.Logger, version string, deps Deps) http.Handler {
 	protect("GET /api/agency", api.handleGetAgency)
 
 	protect("GET /api/references", api.handleReferences)
+	protect("GET /api/countries", api.handleListCountries)
+	protect("PATCH /api/countries/{code}", api.handleUpdateCountryVisibility)
 
 	protect("GET /api/acquisition-channels", api.handleListChannels)
 	protect("POST /api/acquisition-channels", api.handleCreateChannel)
