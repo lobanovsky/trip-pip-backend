@@ -654,8 +654,8 @@ var applicationSortColumns = map[string]string{
 	"-createdAt":  "created_at DESC",
 	"updatedAt":   "updated_at ASC",
 	"-updatedAt":  "updated_at DESC",
-	"departDate":  "depart_date ASC NULLS LAST",
-	"-departDate": "depart_date DESC NULLS LAST",
+	"departDate":  "depart_date ASC NULLS LAST, a.id ASC",
+	"-departDate": "depart_date DESC NULLS LAST, a.id ASC",
 }
 
 // ListApplications возвращает заявки, подходящие под фильтр, вместе с

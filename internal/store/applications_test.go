@@ -569,6 +569,45 @@ func TestListApplicationsSortsByUpcomingDepartDate(t *testing.T) {
 	}
 }
 
+func TestListApplicationsDateSortUsesStableTieBreaker(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство одинаковых дат вылета")
+	customer := createTestTourist(t, s, agency.ID, 1)
+	today := NewDate(time.Now())
+
+	for range 2 {
+		if _, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+			ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", DepartDate: &today}, nil); err != nil {
+			t.Fatalf("CreateApplication() error = %v", err)
+		}
+	}
+
+	ids := func(sort string) []string {
+		applications, _, err := s.ListApplications(context.Background(), agency.ID, ApplicationFilter{
+			Sort: sort, Today: today, Limit: 20,
+		})
+		if err != nil {
+			t.Fatalf("ListApplications(%q) error = %v", sort, err)
+		}
+		result := make([]string, 0, len(applications))
+		for _, application := range applications {
+			result = append(result, application.ID)
+		}
+
+		return result
+	}
+
+	defaultOrder := ids("upcomingDepartDate")
+	if descendingOrder := ids("-departDate"); !slices.Equal(descendingOrder, defaultOrder) {
+		t.Errorf("-departDate order = %v, want %v for equal dates", descendingOrder, defaultOrder)
+	}
+	if ascendingOrder := ids("departDate"); !slices.Equal(ascendingOrder, defaultOrder) {
+		t.Errorf("departDate order = %v, want %v for equal dates", ascendingOrder, defaultOrder)
+	}
+}
+
 func TestListApplicationsSortsByNumberNumerically(t *testing.T) {
 	t.Parallel()
 
