@@ -191,14 +191,14 @@ func TestCreateTransactionRejectsNonRubApplication(t *testing.T) {
 	}
 }
 
-func TestApplicationBalanceCommissionAndAgencyIncome(t *testing.T) {
+func TestApplicationBalanceAgencyIncome(t *testing.T) {
 	t.Parallel()
 
 	s := testStore(t)
-	agency := createTestAgency(t, s, "Агентство комиссий")
+	agency := createTestAgency(t, s, "Агентство дохода")
 	customer := createTestTourist(t, s, agency.ID, 1)
 	app := createTestApplication(t, s, agency.ID, customer.ID, "1000.00")
-	operator := createTestOperator(t, s, agency.ID, "Оператор комиссий")
+	operator := createTestOperator(t, s, agency.ID, "Оператор дохода")
 
 	_, err := s.CreateTransaction(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, TransactionInput{
 		Kind: TransactionOperatorTransfer, Amount: "850.00", PaymentMethod: PaymentMethodTransfer,
@@ -220,11 +220,8 @@ func TestApplicationBalanceCommissionAndAgencyIncome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplicationBalance() error = %v", err)
 	}
-	if balance.Commission == nil || *balance.Commission != "150.00" {
-		t.Errorf("Commission = %v, want 150.00", balance.Commission)
-	}
 	if balance.AgencyIncome != "-850.00" {
-		t.Errorf("AgencyIncome = %v, want -850.00 (0 received − 850 transferred)", balance.AgencyIncome)
+		t.Errorf("AgencyIncome = %v, want -850.00 (0 received − 850 transferred, bonus_income не учитывается)", balance.AgencyIncome)
 	}
 }
 
@@ -317,24 +314,28 @@ func TestListTransactionsFiltersByKindAndApplication(t *testing.T) {
 	}
 }
 
-func TestRevenueByPeriodAttributesCommissionToLastTransferPeriod(t *testing.T) {
+func TestRevenueByPeriodComputesAgencyIncomeByTransactionDate(t *testing.T) {
 	t.Parallel()
 
 	s := testStore(t)
 	agency := createTestAgency(t, s, "Агентство отчётов")
 	customer := createTestTourist(t, s, agency.ID, 1)
+	payer := createTestPayer(t, s, agency.ID, customer.ID)
 	operator := createTestOperator(t, s, agency.ID, "Оператор отчётов")
 	app := createTestApplication(t, s, agency.ID, customer.ID, "1000.00")
 
-	transferDate := NewDate(time.Now())
-	if _, err := s.CreateTransaction(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, TransactionInput{
-		Kind: TransactionOperatorTransfer, Amount: "900.00", PaymentMethod: PaymentMethodTransfer,
-		TourOperatorID: &operator.ID, OccurredAt: transferDate,
-	}); err != nil {
-		t.Fatalf("CreateTransaction() error = %v", err)
+	today := NewDate(time.Now())
+	for _, tx := range []TransactionInput{
+		{Kind: TransactionReceipt, Amount: "900.00", PaymentMethod: PaymentMethodCash, PayerID: &payer.ID, OccurredAt: today},
+		{Kind: TransactionRefund, Amount: "100.00", PaymentMethod: PaymentMethodCash, PayerID: &payer.ID, OccurredAt: today},
+		{Kind: TransactionOperatorTransfer, Amount: "700.00", PaymentMethod: PaymentMethodTransfer, TourOperatorID: &operator.ID, OccurredAt: today},
+	} {
+		if _, err := s.CreateTransaction(context.Background(), agency.ID, app.ID, Actor{Label: "test"}, tx); err != nil {
+			t.Fatalf("CreateTransaction(%q) error = %v", tx.Kind, err)
+		}
 	}
 
-	from := Date{Year: transferDate.Year, Month: transferDate.Month, Day: 1}
+	from := Date{Year: today.Year, Month: today.Month, Day: 1}
 	to := from.AddDays(45)
 
 	periods, err := s.RevenueByPeriod(context.Background(), agency.ID, "month", from, to)
@@ -344,18 +345,18 @@ func TestRevenueByPeriodAttributesCommissionToLastTransferPeriod(t *testing.T) {
 
 	var found bool
 	for _, p := range periods {
-		if p.Period.Year == transferDate.Year && p.Period.Month == transferDate.Month {
+		if p.Period.Year == today.Year && p.Period.Month == today.Month {
 			found = true
-			if p.Commission != "100.00" {
-				t.Errorf("Commission = %q, want 100.00", p.Commission)
+			if p.AgencyIncome != "100.00" {
+				t.Errorf("AgencyIncome = %q, want 100.00 (900 receipt − 100 refund − 700 transferred)", p.AgencyIncome)
 			}
-			if p.Transferred != "900.00" {
-				t.Errorf("Transferred = %q, want 900.00", p.Transferred)
+			if p.Transferred != "700.00" {
+				t.Errorf("Transferred = %q, want 700.00", p.Transferred)
 			}
 		}
 	}
 	if !found {
-		t.Fatalf("no period found for %v in %+v", transferDate, periods)
+		t.Fatalf("no period found for %v in %+v", today, periods)
 	}
 }
 

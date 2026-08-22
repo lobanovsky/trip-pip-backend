@@ -364,9 +364,7 @@ func (s *Store) VoidTransaction(ctx context.Context, agencyID, id string, actor 
 	})
 }
 
-// Balance — денежный итог по одной заявке. Commission — nil, если у заявки
-// ещё не задана price_total: комиссия от контрактной стоимости без неё не
-// вычислить. AgencyIncome от price_total не зависит и вычисляется всегда.
+// Balance — денежный итог по одной заявке.
 type Balance struct {
 	PriceTotal    *string `json:"priceTotal,omitempty"`
 	Received      string  `json:"received"`
@@ -375,7 +373,6 @@ type Balance struct {
 	Transferred   string  `json:"transferred"`
 	BonusIncome   string  `json:"bonusIncome"`
 	AcquiringFees string  `json:"acquiringFees"`
-	Commission    *string `json:"commission,omitempty"`
 	AgencyIncome  string  `json:"agencyIncome"`
 	PaymentStatus string  `json:"paymentStatus,omitempty"`
 }
@@ -393,7 +390,6 @@ func (s *Store) ApplicationBalance(ctx context.Context, agencyID, applicationID 
 		    transferred::text,
 		    bonus_income::text,
 		    acquiring_fees::text,
-		    CASE WHEN price_total IS NULL THEN NULL ELSE (price_total - transferred)::text END,
 		    (received - refunded - transferred)::text,
 		    CASE
 		        WHEN price_total IS NULL THEN ''
@@ -409,7 +405,7 @@ func (s *Store) ApplicationBalance(ctx context.Context, agencyID, applicationID 
 	err := s.db.QueryRow(ctx, query, agencyID, applicationID).Scan(
 		&balance.PriceTotal, &balance.Received, &balance.Refunded, &balance.NetReceived,
 		&balance.Transferred, &balance.BonusIncome, &balance.AcquiringFees,
-		&balance.Commission, &balance.AgencyIncome, &balance.PaymentStatus)
+		&balance.AgencyIncome, &balance.PaymentStatus)
 	if err != nil {
 		return Balance{}, mapError(err)
 	}
@@ -436,7 +432,6 @@ type PeriodRevenue struct {
 	Refunds      string `json:"refunds"`
 	Transferred  string `json:"transferred"`
 	BonusIncome  string `json:"bonusIncome"`
-	Commission   string `json:"commission"`
 	AgencyIncome string `json:"agencyIncome"`
 }
 
@@ -445,11 +440,6 @@ type PeriodRevenue struct {
 // и AgencyIncome (receipts - refunds - transferred) группируются по дате
 // самой транзакции — деньги, которые агентство ещё не перечислило
 // туроператору, считаются его доходом того периода, в котором получены.
-// Commission — не факт движения денег, а разница price_total-transferred по
-// заявке, поэтому у неё нет своей даты: она относится к периоду последнего
-// operator_transfer этой заявки и не участвует в AgencyIncome. Заявка без
-// единого перевода туроператору не даёт Commission за период, но её
-// receipts/refunds всё равно попадают в AgencyIncome.
 func (s *Store) RevenueByPeriod(ctx context.Context, agencyID, unit string, from, to Date) ([]PeriodRevenue, error) {
 	v := newValidator()
 	v.oneOf("unit", unit, "month", "quarter", "year")
@@ -458,45 +448,19 @@ func (s *Store) RevenueByPeriod(ctx context.Context, agencyID, unit string, from
 	}
 
 	const query = `
-		WITH turnover AS (
-		    SELECT date_trunc($2, occurred_at)::date AS period,
-		           COALESCE(SUM(amount) FILTER (WHERE kind = 'receipt'), 0) AS receipts,
-		           COALESCE(SUM(amount) FILTER (WHERE kind = 'refund'), 0) AS refunds,
-		           COALESCE(SUM(amount) FILTER (WHERE kind = 'operator_transfer'), 0) AS transferred,
-		           COALESCE(SUM(amount) FILTER (WHERE kind = 'bonus_income'), 0) AS bonus_income
-		    FROM payment_transactions
-		    WHERE agency_id = $1 AND archived_at IS NULL
-		      AND occurred_at BETWEEN $3 AND $4
-		    GROUP BY period
-		),
-		application_commission AS (
-		    SELECT a.id AS application_id,
-		           a.price_total - COALESCE(SUM(t.amount), 0) AS commission,
-		           MAX(t.occurred_at) AS last_transfer_at
-		    FROM applications a
-		    JOIN payment_transactions t
-		        ON t.application_id = a.id AND t.agency_id = a.agency_id
-		       AND t.kind = 'operator_transfer' AND t.archived_at IS NULL
-		    WHERE a.agency_id = $1 AND a.price_total IS NOT NULL
-		    GROUP BY a.id, a.price_total
-		),
-		commission_by_period AS (
-		    SELECT date_trunc($2, last_transfer_at)::date AS period,
-		           COALESCE(SUM(commission), 0) AS commission
-		    FROM application_commission
-		    WHERE last_transfer_at BETWEEN $3 AND $4
-		    GROUP BY period
-		)
 		SELECT
-		    COALESCE(o.period, c.period) AS period,
-		    COALESCE(o.receipts, 0)::text,
-		    COALESCE(o.refunds, 0)::text,
-		    COALESCE(o.transferred, 0)::text,
-		    COALESCE(o.bonus_income, 0)::text,
-		    COALESCE(c.commission, 0)::text,
-		    (COALESCE(o.receipts, 0) - COALESCE(o.refunds, 0) - COALESCE(o.transferred, 0))::text
-		FROM turnover o
-		FULL OUTER JOIN commission_by_period c ON c.period = o.period
+		    date_trunc($2, occurred_at)::date AS period,
+		    COALESCE(SUM(amount) FILTER (WHERE kind = 'receipt'), 0)::text AS receipts,
+		    COALESCE(SUM(amount) FILTER (WHERE kind = 'refund'), 0)::text AS refunds,
+		    COALESCE(SUM(amount) FILTER (WHERE kind = 'operator_transfer'), 0)::text AS transferred,
+		    COALESCE(SUM(amount) FILTER (WHERE kind = 'bonus_income'), 0)::text AS bonus_income,
+		    (COALESCE(SUM(amount) FILTER (WHERE kind = 'receipt'), 0)
+		        - COALESCE(SUM(amount) FILTER (WHERE kind = 'refund'), 0)
+		        - COALESCE(SUM(amount) FILTER (WHERE kind = 'operator_transfer'), 0))::text AS agency_income
+		FROM payment_transactions
+		WHERE agency_id = $1 AND archived_at IS NULL
+		  AND occurred_at BETWEEN $3 AND $4
+		GROUP BY period
 		ORDER BY period`
 
 	rows, err := s.db.Query(ctx, query, agencyID, unit, from, to)
@@ -509,7 +473,7 @@ func (s *Store) RevenueByPeriod(ctx context.Context, agencyID, unit string, from
 	for rows.Next() {
 		var p PeriodRevenue
 		if err := rows.Scan(&p.Period, &p.Receipts, &p.Refunds, &p.Transferred,
-			&p.BonusIncome, &p.Commission, &p.AgencyIncome); err != nil {
+			&p.BonusIncome, &p.AgencyIncome); err != nil {
 			return nil, mapError(err)
 		}
 		periods = append(periods, p)

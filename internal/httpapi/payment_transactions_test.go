@@ -238,12 +238,18 @@ func TestRevenueReportEndpointRejectsUnknownUnit(t *testing.T) {
 	}
 }
 
-func TestRevenueReportEndpointReturnsCommission(t *testing.T) {
+func TestRevenueReportEndpointReturnsAgencyIncome(t *testing.T) {
 	t.Parallel()
 
 	f := setupTransactionTest(t)
 	today := time.Now().Format("2006-01-02")
 
+	if response := f.do(t, http.MethodPost, "/api/applications/"+f.appID+"/transactions", map[string]any{
+		"kind": store.TransactionReceipt, "amount": "900.00",
+		"payerId": f.payerID, "paymentMethod": store.PaymentMethodCash, "occurredAt": today,
+	}); response.Code != http.StatusCreated {
+		t.Fatalf("create receipt status = %d, want 201; body = %s", response.Code, response.Body)
+	}
 	if response := f.do(t, http.MethodPost, "/api/applications/"+f.appID+"/transactions", map[string]any{
 		"kind": store.TransactionOperatorTransfer, "amount": "850.00",
 		"tourOperatorId": f.operID, "paymentMethod": store.PaymentMethodTransfer, "occurredAt": today,
@@ -271,11 +277,11 @@ func TestRevenueReportEndpointReturnsCommission(t *testing.T) {
 
 	var found bool
 	for _, period := range envelope.Items {
-		if period.Commission == "150.00" {
+		if period.AgencyIncome == "50.00" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("no period with commission=150.00 found in %+v", envelope.Items)
+		t.Fatalf("no period with agencyIncome=50.00 found in %+v", envelope.Items)
 	}
 }
