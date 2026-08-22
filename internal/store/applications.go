@@ -645,8 +645,11 @@ type ApplicationFilter struct {
 }
 
 var applicationSortColumns = map[string]string{
-	"number":      "number ASC",
-	"-number":     "number DESC",
+	// number — всегда простая строка из nextApplicationNumber (никогда не
+	// вводится и не редактируется пользователем), поэтому ::bigint безопасен
+	// и даёт числовой, а не лексикографический порядок (1, 2, 10, а не 1, 10, 2).
+	"number":      "number::bigint ASC",
+	"-number":     "number::bigint DESC",
 	"createdAt":   "created_at ASC",
 	"-createdAt":  "created_at DESC",
 	"updatedAt":   "updated_at ASC",

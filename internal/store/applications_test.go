@@ -516,8 +516,8 @@ func TestListApplicationsIncludesTouristCountAndFinance(t *testing.T) {
 	if found.Finance.NetReceived != "500.00" {
 		t.Errorf("Finance.NetReceived = %q, want 500.00 (600 receipt − 100 refund)", found.Finance.NetReceived)
 	}
-	if found.Finance.AgencyIncome != "-150.00" {
-		t.Errorf("Finance.AgencyIncome = %v, want -150.00 (500 net received − 850 transferred)", found.Finance.AgencyIncome)
+	if found.Finance.AgencyIncome != "-350.00" {
+		t.Errorf("Finance.AgencyIncome = %v, want -350.00 (500 net received − 850 transferred)", found.Finance.AgencyIncome)
 	}
 }
 
@@ -566,5 +566,46 @@ func TestListApplicationsSortsByUpcomingDepartDate(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("order = %v, want %v (today/future ascending, past descending, no date last)", got, want)
+	}
+}
+
+func TestListApplicationsSortsByNumberNumerically(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство нумерации")
+	customer := createTestTourist(t, s, agency.ID, 1)
+
+	for i := 0; i < 10; i++ {
+		if _, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+			ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB"}, nil); err != nil {
+			t.Fatalf("CreateApplication() error = %v", err)
+		}
+	}
+
+	applications, _, err := s.ListApplications(context.Background(), agency.ID, ApplicationFilter{Sort: "number", Limit: 20})
+	if err != nil {
+		t.Fatalf("ListApplications() error = %v", err)
+	}
+	got := make([]string, 0, len(applications))
+	for _, app := range applications {
+		got = append(got, app.Number)
+	}
+	want := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+	if !slices.Equal(got, want) {
+		t.Errorf("number order = %v, want %v (numeric, not lexicographic)", got, want)
+	}
+
+	descending, _, err := s.ListApplications(context.Background(), agency.ID, ApplicationFilter{Sort: "-number", Limit: 20})
+	if err != nil {
+		t.Fatalf("ListApplications() error = %v", err)
+	}
+	gotDesc := make([]string, 0, len(descending))
+	for _, app := range descending {
+		gotDesc = append(gotDesc, app.Number)
+	}
+	wantDesc := []string{"10", "9", "8", "7", "6", "5", "4", "3", "2", "1"}
+	if !slices.Equal(gotDesc, wantDesc) {
+		t.Errorf("-number order = %v, want %v", gotDesc, wantDesc)
 	}
 }
