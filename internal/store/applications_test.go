@@ -516,8 +516,8 @@ func TestListApplicationsIncludesTouristCountAndFinance(t *testing.T) {
 	if found.Finance.NetReceived != "500.00" {
 		t.Errorf("Finance.NetReceived = %q, want 500.00 (600 receipt − 100 refund)", found.Finance.NetReceived)
 	}
-	if found.Finance.AgencyIncome == nil || *found.Finance.AgencyIncome != "170.00" {
-		t.Errorf("Finance.AgencyIncome = %v, want 170.00 (1000 price − 850 transferred + 20 bonus)", found.Finance.AgencyIncome)
+	if found.Finance.AgencyIncome != "-150.00" {
+		t.Errorf("Finance.AgencyIncome = %v, want -150.00 (500 net received − 850 transferred)", found.Finance.AgencyIncome)
 	}
 }
 

@@ -223,8 +223,8 @@ func TestApplicationBalanceCommissionAndAgencyIncome(t *testing.T) {
 	if balance.Commission == nil || *balance.Commission != "150.00" {
 		t.Errorf("Commission = %v, want 150.00", balance.Commission)
 	}
-	if balance.AgencyIncome == nil || *balance.AgencyIncome != "170.00" {
-		t.Errorf("AgencyIncome = %v, want 170.00", balance.AgencyIncome)
+	if balance.AgencyIncome != "-850.00" {
+		t.Errorf("AgencyIncome = %v, want -850.00 (0 received − 850 transferred)", balance.AgencyIncome)
 	}
 }
 

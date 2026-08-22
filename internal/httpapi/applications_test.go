@@ -167,8 +167,8 @@ func TestListApplicationsIncludesTouristCountAndFinance(t *testing.T) {
 	if item.Finance.Transferred != "0" || item.Finance.NetReceived != "0" {
 		t.Errorf("Finance = %+v, want zero transferred/netReceived (no transactions yet)", item.Finance)
 	}
-	if item.Finance.AgencyIncome == nil || *item.Finance.AgencyIncome != "500.00" {
-		t.Errorf("Finance.AgencyIncome = %v, want 500.00 (full price, nothing transferred yet)", item.Finance.AgencyIncome)
+	if item.Finance.AgencyIncome != "0" {
+		t.Errorf("Finance.AgencyIncome = %v, want 0 (nothing received yet)", item.Finance.AgencyIncome)
 	}
 }
 

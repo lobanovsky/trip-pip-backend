@@ -700,7 +700,7 @@ func (s *Store) ListApplications(ctx context.Context, agencyID string, filter Ap
 		    (SELECT count(*) FROM application_tourists at2 WHERE at2.application_id = a.id)::int AS tourist_count,
 		    coalesce(bal.transferred, 0)::text AS transferred,
 		    coalesce(bal.received - bal.refunded, 0)::text AS net_received,
-		    CASE WHEN a.price_total IS NULL THEN NULL ELSE (a.price_total - bal.transferred + bal.bonus_income)::text END AS agency_income,
+		    (coalesce(bal.received - bal.refunded, 0) - coalesce(bal.transferred, 0))::text AS agency_income,
 		    count(*) OVER () AS total
 		FROM applications a
 		LEFT JOIN (
@@ -741,8 +741,7 @@ func (s *Store) ListApplications(ctx context.Context, agencyID string, filter Ap
 	for rows.Next() {
 		var application Application
 		var touristCount int
-		var transferred, netReceived string
-		var agencyIncome *string
+		var transferred, netReceived, agencyIncome string
 		targets := append(applicationScanTargets(&application),
 			&touristCount, &transferred, &netReceived, &agencyIncome, &total)
 		if err := rows.Scan(targets...); err != nil {

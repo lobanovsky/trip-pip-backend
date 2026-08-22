@@ -364,9 +364,9 @@ func (s *Store) VoidTransaction(ctx context.Context, agencyID, id string, actor 
 	})
 }
 
-// Balance — денежный итог по одной заявке. Commission и AgencyIncome — nil,
-// если у заявки ещё не задана price_total: агентское вознаграждение не
-// вычислить без стоимости поездки.
+// Balance — денежный итог по одной заявке. Commission — nil, если у заявки
+// ещё не задана price_total: комиссия от контрактной стоимости без неё не
+// вычислить. AgencyIncome от price_total не зависит и вычисляется всегда.
 type Balance struct {
 	PriceTotal    *string `json:"priceTotal,omitempty"`
 	Received      string  `json:"received"`
@@ -376,7 +376,7 @@ type Balance struct {
 	BonusIncome   string  `json:"bonusIncome"`
 	AcquiringFees string  `json:"acquiringFees"`
 	Commission    *string `json:"commission,omitempty"`
-	AgencyIncome  *string `json:"agencyIncome,omitempty"`
+	AgencyIncome  string  `json:"agencyIncome"`
 	PaymentStatus string  `json:"paymentStatus,omitempty"`
 }
 
@@ -394,7 +394,7 @@ func (s *Store) ApplicationBalance(ctx context.Context, agencyID, applicationID 
 		    bonus_income::text,
 		    acquiring_fees::text,
 		    CASE WHEN price_total IS NULL THEN NULL ELSE (price_total - transferred)::text END,
-		    CASE WHEN price_total IS NULL THEN NULL ELSE (price_total - transferred + bonus_income)::text END,
+		    (received - refunded - transferred)::text,
 		    CASE
 		        WHEN price_total IS NULL THEN ''
 		        WHEN received - refunded <= 0 THEN 'unpaid'
@@ -420,12 +420,13 @@ func (s *Store) ApplicationBalance(ctx context.Context, agencyID, applicationID 
 // ApplicationFinanceSummary — сокращённая денежная сводка для списка заявок
 // (в отличие от Balance, который отдаёт /applications/{id}/finance). Те же
 // формулы, что ApplicationBalance: Transferred — сумма operator_transfer,
-// NetReceived — received минус refunded, AgencyIncome — price_total минус
-// transferred плюс bonus_income (nil, если price_total не задана).
+// NetReceived — received минус refunded, AgencyIncome — NetReceived минус
+// Transferred (деньги, которые агентство ещё не отдало туроператору,
+// считаются его доходом).
 type ApplicationFinanceSummary struct {
-	Transferred  string  `json:"transferred"`
-	NetReceived  string  `json:"netReceived"`
-	AgencyIncome *string `json:"agencyIncome,omitempty"`
+	Transferred  string `json:"transferred"`
+	NetReceived  string `json:"netReceived"`
+	AgencyIncome string `json:"agencyIncome"`
 }
 
 // PeriodRevenue — суммы одного периода в базовом финансовом отчёте.
@@ -441,10 +442,14 @@ type PeriodRevenue struct {
 
 // RevenueByPeriod агрегирует движение денег агентства по месяцам, кварталам
 // или годам за [from, to]. Оборот (receipts/refunds/transferred/bonusIncome)
-// группируется по дате самой транзакции. Комиссия — не факт движения денег,
-// а разница price_total-transferred по заявке, поэтому у неё нет своей даты:
-// она относится к периоду последнего operator_transfer этой заявки. Заявка
-// без единого перевода туроператору не участвует в разбивке по периодам.
+// и AgencyIncome (receipts - refunds - transferred) группируются по дате
+// самой транзакции — деньги, которые агентство ещё не перечислило
+// туроператору, считаются его доходом того периода, в котором получены.
+// Commission — не факт движения денег, а разница price_total-transferred по
+// заявке, поэтому у неё нет своей даты: она относится к периоду последнего
+// operator_transfer этой заявки и не участвует в AgencyIncome. Заявка без
+// единого перевода туроператору не даёт Commission за период, но её
+// receipts/refunds всё равно попадают в AgencyIncome.
 func (s *Store) RevenueByPeriod(ctx context.Context, agencyID, unit string, from, to Date) ([]PeriodRevenue, error) {
 	v := newValidator()
 	v.oneOf("unit", unit, "month", "quarter", "year")
@@ -489,7 +494,7 @@ func (s *Store) RevenueByPeriod(ctx context.Context, agencyID, unit string, from
 		    COALESCE(o.transferred, 0)::text,
 		    COALESCE(o.bonus_income, 0)::text,
 		    COALESCE(c.commission, 0)::text,
-		    (COALESCE(c.commission, 0) + COALESCE(o.bonus_income, 0))::text
+		    (COALESCE(o.receipts, 0) - COALESCE(o.refunds, 0) - COALESCE(o.transferred, 0))::text
 		FROM turnover o
 		FULL OUTER JOIN commission_by_period c ON c.period = o.period
 		ORDER BY period`
