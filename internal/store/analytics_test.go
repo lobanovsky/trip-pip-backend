@@ -120,14 +120,14 @@ func TestDirectionStatsExcludesEmptyCountryAndOrdersByCount(t *testing.T) {
 	from := Date{Year: 2000, Month: 1, Day: 1}
 	to := Date{Year: 2100, Month: 1, Day: 1}
 
-	turkey := "Турция"
-	egypt := "Египет"
+	turkey := "TR"
+	egypt := "EG"
 
-	for i, country := range []*string{&turkey, &turkey, &egypt, nil} {
+	for i, countryCode := range []*string{&turkey, &turkey, &egypt, nil} {
 		customer := createTestTourist(t, s, agency.ID, 100+i)
 		price := "100.00"
 		_, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
-			ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", PriceTotal: &price, Country: country}, nil)
+			ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", PriceTotal: &price, CountryCode: countryCode}, nil)
 		if err != nil {
 			t.Fatalf("CreateApplication() error = %v", err)
 		}

@@ -63,16 +63,19 @@ type Application struct {
 	TourOperatorReference *string `json:"tourOperatorReference,omitempty"`
 	AcquisitionChannelID  *string `json:"acquisitionChannelId,omitempty"`
 
-	Country    *string `json:"country,omitempty"`
-	City       *string `json:"city,omitempty"`
-	Resort     *string `json:"resort,omitempty"`
-	Hotel      *string `json:"hotel,omitempty"`
-	DepartDate *Date   `json:"departDate,omitempty"`
-	ReturnDate *Date   `json:"returnDate,omitempty"`
-	Adults     *int    `json:"adults,omitempty"`
-	Children   *int    `json:"children,omitempty"`
-	PriceTotal *string `json:"priceTotal,omitempty"`
-	Currency   string  `json:"currency"`
+	// Country — название страны, всегда производное от CountryCode
+	// (см. Normalize/CreateApplication/UpdateApplication); отдельно не пишется.
+	Country     *string `json:"country,omitempty"`
+	CountryCode *string `json:"countryCode,omitempty"`
+	City        *string `json:"city,omitempty"`
+	Resort      *string `json:"resort,omitempty"`
+	Hotel       *string `json:"hotel,omitempty"`
+	DepartDate  *Date   `json:"departDate,omitempty"`
+	ReturnDate  *Date   `json:"returnDate,omitempty"`
+	Adults      *int    `json:"adults,omitempty"`
+	Children    *int    `json:"children,omitempty"`
+	PriceTotal  *string `json:"priceTotal,omitempty"`
+	Currency    string  `json:"currency"`
 
 	Note         *string `json:"note,omitempty"`
 	CancelReason *string `json:"cancelReason,omitempty"`
@@ -103,29 +106,33 @@ type ApplicationInput struct {
 	TourOperatorReference *string `json:"tourOperatorReference" history:"tourOperatorReference"`
 	AcquisitionChannelID  *string `json:"acquisitionChannelId" history:"acquisitionChannelId"`
 
-	Country    *string `json:"country" history:"country"`
-	City       *string `json:"city" history:"city"`
-	Resort     *string `json:"resort" history:"resort"`
-	Hotel      *string `json:"hotel" history:"hotel"`
-	DepartDate *Date   `json:"departDate" history:"departDate"`
-	ReturnDate *Date   `json:"returnDate" history:"returnDate"`
-	Adults     *int    `json:"adults" history:"adults"`
-	Children   *int    `json:"children" history:"children"`
-	PriceTotal *string `json:"priceTotal" history:"priceTotal"`
-	Currency   string  `json:"currency" history:"currency"`
+	CountryCode *string `json:"countryCode" history:"countryCode"`
+	City        *string `json:"city" history:"city"`
+	Resort      *string `json:"resort" history:"resort"`
+	Hotel       *string `json:"hotel" history:"hotel"`
+	DepartDate  *Date   `json:"departDate" history:"departDate"`
+	ReturnDate  *Date   `json:"returnDate" history:"returnDate"`
+	Adults      *int    `json:"adults" history:"adults"`
+	Children    *int    `json:"children" history:"children"`
+	PriceTotal  *string `json:"priceTotal" history:"priceTotal"`
+	Currency    string  `json:"currency" history:"currency"`
 
 	Note *string `json:"note" history:"note"`
 }
 
 // Normalize обрезает пробелы в тексте и заполняет значения по умолчанию, ожидаемые схемой.
 func (in *ApplicationInput) Normalize() {
-	trimPtr(&in.Country)
 	trimPtr(&in.City)
 	trimPtr(&in.Resort)
 	trimPtr(&in.Hotel)
 	trimPtr(&in.Note)
 	trimPtr(&in.PriceTotal)
 	trimPtr(&in.TourOperatorReference)
+
+	if in.CountryCode != nil {
+		code := strings.ToUpper(strings.TrimSpace(*in.CountryCode))
+		in.CountryCode = &code
+	}
 
 	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
 	if in.Currency == "" {
@@ -141,7 +148,7 @@ func (in ApplicationInput) Validate() error {
 		v.add("customerTouristId", "укажите заказчика")
 	}
 
-	v.optional("country", in.Country, 100)
+	v.pattern("countryCode", in.CountryCode, countryCodeRe, "код страны — два заглавных латинских символа (ISO 3166-1 alpha-2)")
 	v.optional("city", in.City, 100)
 	v.optional("resort", in.Resort, 100)
 	v.optional("hotel", in.Hotel, 200)
@@ -179,14 +186,14 @@ func (in ApplicationInput) Validate() error {
 
 const applicationColumns = `id, number, status, status_changed_at,
 	customer_tourist_id, manager_user_id, payer_id, tour_operator_id, tour_operator_reference, acquisition_channel_id,
-	country, city, resort, hotel, depart_date, return_date, adults, children,
+	country, country_code, city, resort, hotel, depart_date, return_date, adults, children,
 	price_total::text, currency, note, cancel_reason, version, created_at, updated_at`
 
 func applicationScanTargets(a *Application) []any {
 	return []any{
 		&a.ID, &a.Number, &a.Status, &a.StatusChangedAt,
 		&a.CustomerTouristID, &a.ManagerUserID, &a.PayerID, &a.TourOperatorID, &a.TourOperatorReference, &a.AcquisitionChannelID,
-		&a.Country, &a.City, &a.Resort, &a.Hotel, &a.DepartDate, &a.ReturnDate, &a.Adults, &a.Children,
+		&a.Country, &a.CountryCode, &a.City, &a.Resort, &a.Hotel, &a.DepartDate, &a.ReturnDate, &a.Adults, &a.Children,
 		&a.PriceTotal, &a.Currency, &a.Note, &a.CancelReason, &a.Version, &a.CreatedAt, &a.UpdatedAt,
 	}
 }
@@ -203,7 +210,7 @@ func scanApplication(row interface{ Scan(...any) error }) (Application, error) {
 func applicationArgs(input ApplicationInput) []any {
 	return []any{
 		input.CustomerTouristID, input.ManagerUserID, input.PayerID, input.TourOperatorID, input.TourOperatorReference,
-		input.AcquisitionChannelID, input.Country, input.City, input.Resort, input.Hotel,
+		input.AcquisitionChannelID, input.CountryCode, input.City, input.Resort, input.Hotel,
 		input.DepartDate, input.ReturnDate, input.Adults, input.Children,
 		emptyNumeric(input.PriceTotal), input.Currency, input.Note,
 	}
@@ -250,12 +257,17 @@ func (s *Store) CreateApplication(ctx context.Context, agencyID string, actor Ac
 			return err
 		}
 
+		// country не приходит от клиента: он всегда вычисляется из country_code
+		// через справочник countries, чтобы полнотекстовый поиск (search_text)
+		// и отчёты по направлениям видели читаемое название, а не код.
 		const query = `
 			INSERT INTO applications (
 			    agency_id, number, customer_tourist_id, manager_user_id, payer_id, tour_operator_id, tour_operator_reference,
-			    acquisition_channel_id, country, city, resort, hotel, depart_date, return_date,
+			    acquisition_channel_id, country, country_code, city, resort, hotel, depart_date, return_date,
 			    adults, children, price_total, currency, note, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+			        (SELECT name FROM countries WHERE code = $9), $9,
+			        $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20)
 			RETURNING ` + applicationColumns
 
 		args := append([]any{agencyID, number}, applicationArgs(input)...)
@@ -320,10 +332,16 @@ func (s *Store) UpdateApplication(ctx context.Context, agencyID, id string, acto
 			return ErrVersionConflict
 		}
 
+		// country не трогаем напрямую: если country_code не передан, старое
+		// название сохраняется как есть (см. комментарий в CreateApplication) —
+		// иначе непривязанный текст старых заявок стирался бы любым чужим PATCH.
 		const query = `
 			UPDATE applications SET
 			    customer_tourist_id = $3, manager_user_id = $4, payer_id = $5, tour_operator_id = $6, tour_operator_reference = $7,
-			    acquisition_channel_id = $8, country = $9, city = $10, resort = $11, hotel = $12,
+			    acquisition_channel_id = $8,
+			    country = CASE WHEN $9::text IS NULL THEN country ELSE (SELECT name FROM countries WHERE code = $9) END,
+			    country_code = $9,
+			    city = $10, resort = $11, hotel = $12,
 			    depart_date = $13, return_date = $14, adults = $15, children = $16,
 			    price_total = $17, currency = $18, note = $19, updated_by = $20, version = version + 1
 			WHERE agency_id = $1 AND id = $2 AND archived_at IS NULL
@@ -373,7 +391,7 @@ func applicationInput(a Application) ApplicationInput {
 		TourOperatorID:        a.TourOperatorID,
 		TourOperatorReference: a.TourOperatorReference,
 		AcquisitionChannelID:  a.AcquisitionChannelID,
-		Country:               a.Country,
+		CountryCode:           a.CountryCode,
 		City:                  a.City,
 		Resort:                a.Resort,
 		Hotel:                 a.Hotel,

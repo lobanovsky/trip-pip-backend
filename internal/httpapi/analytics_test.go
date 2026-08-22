@@ -139,9 +139,9 @@ func TestDirectionsReportEndpoint(t *testing.T) {
 
 	f := setupAnalyticsTest(t)
 	price := "500.00"
-	country := "Турция"
+	countryCode := "TR"
 	customer := f.createTourist(t)
-	f.createApplication(t, customer.ID, store.ApplicationInput{PriceTotal: &price, Country: &country})
+	f.createApplication(t, customer.ID, store.ApplicationInput{PriceTotal: &price, CountryCode: &countryCode})
 
 	response := f.do(t, http.MethodGet, "/api/reports/directions?"+safeReportRange())
 	if response.Code != http.StatusOK {

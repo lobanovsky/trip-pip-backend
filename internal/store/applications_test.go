@@ -392,3 +392,70 @@ func TestApplicationInputValidatesTourOperatorReferenceLength(t *testing.T) {
 		t.Errorf("fields = %+v, want tourOperatorReference present", validationErr.Fields)
 	}
 }
+
+func TestApplicationCountryCodeResolvesName(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство стран")
+	customer := createTestTourist(t, s, agency.ID, 1)
+
+	code := "TR"
+	created, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+		ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", CountryCode: &code}, nil)
+	if err != nil {
+		t.Fatalf("CreateApplication() error = %v", err)
+	}
+	if created.CountryCode == nil || *created.CountryCode != "TR" {
+		t.Errorf("CountryCode = %v, want TR", created.CountryCode)
+	}
+	if created.Country == nil || *created.Country != "Турция" {
+		t.Errorf("Country = %v, want Турция", created.Country)
+	}
+}
+
+func TestApplicationCreateRejectsUnknownCountryCode(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство неизвестной страны")
+	customer := createTestTourist(t, s, agency.ID, 1)
+
+	code := "ZZ"
+	_, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+		ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", CountryCode: &code}, nil)
+	if !errors.Is(err, ErrInvalidReference) {
+		t.Fatalf("CreateApplication() error = %v, want ErrInvalidReference", err)
+	}
+}
+
+func TestApplicationUpdateWithoutCountryCodePreservesIt(t *testing.T) {
+	t.Parallel()
+
+	s := testStore(t)
+	agency := createTestAgency(t, s, "Агентство сохранения страны")
+	customer := createTestTourist(t, s, agency.ID, 1)
+
+	code := "EG"
+	created, err := s.CreateApplication(context.Background(), agency.ID, Actor{Label: "test"},
+		ApplicationInput{CustomerTouristID: customer.ID, Currency: "RUB", CountryCode: &code}, nil)
+	if err != nil {
+		t.Fatalf("CreateApplication() error = %v", err)
+	}
+
+	// Патч меняет только заметку, страну явно не трогает — она не должна
+	// ни обнулиться, ни перезаписаться.
+	note := "уточнить даты"
+	updateInput := ApplicationAsInput(created)
+	updateInput.Note = &note
+	updated, err := s.UpdateApplication(context.Background(), agency.ID, created.ID, Actor{Label: "test"}, updateInput, created.Version)
+	if err != nil {
+		t.Fatalf("UpdateApplication() error = %v", err)
+	}
+	if updated.CountryCode == nil || *updated.CountryCode != "EG" {
+		t.Errorf("CountryCode = %v, want EG (unchanged)", updated.CountryCode)
+	}
+	if updated.Country == nil || *updated.Country != "Египет" {
+		t.Errorf("Country = %v, want Египет (unchanged)", updated.Country)
+	}
+}

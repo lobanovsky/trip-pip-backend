@@ -121,6 +121,7 @@ var (
 	kppRe            = regexp.MustCompile(`^[0-9]{9}$`)
 	ogrnRe           = regexp.MustCompile(`^[0-9]{13}([0-9]{2})?$`)
 	currencyRe       = regexp.MustCompile(`^[A-Z]{3}$`)
+	countryCodeRe    = regexp.MustCompile(`^[A-Z]{2}$`)
 	channelCodeRe    = regexp.MustCompile(`^[a-z0-9_]{1,32}$`)
 	phoneDigitsRe    = regexp.MustCompile(`[^0-9+]`)
 )
